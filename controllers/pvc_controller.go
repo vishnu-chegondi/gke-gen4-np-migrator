@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +32,41 @@ func (r *PVCController) InitializePVCController(ctx context.Context, pvc *v1.Per
 }
 
 func (r *PVCController) ReconcilePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+	pvc.Name = pvc.Name + "-migrated"
+	if err := r.Update(ctx, pvc); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+	pvcName := strings.TrimSuffix(pvc.Name, "-migrated")
+	pvcNamespacedName := client.ObjectKey{
+		Namespace: pvc.Namespace,
+		Name:      pvcName,
+	}
+	var newPVC v1.PersistentVolumeClaim
+
+	if err := r.Get(ctx, pvcNamespacedName, &newPVC); err == nil {
+		return nil
+	}
+
+	newObjectMeta := new(pvc.ObjectMeta)
+	newObjectMeta.Name = pvcName
+
+	newSpec := new(pvc.Spec)
+	*newSpec.StorageClassName = "standard-rwo-snapshot-class" //TODO: Make this configurable
+
+	newPVC = v1.PersistentVolumeClaim{
+		TypeMeta:   pvc.TypeMeta,
+		ObjectMeta: *newObjectMeta,
+		Spec:       *newSpec,
+	}
+
+	if err := r.Create(ctx, &newPVC); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -47,9 +83,16 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	if err := r.CreateSnapshotForPVC(ctx, &pvc); err != nil {
 		return reconcile.Result{}, err
 	}
+	if err := r.WaitForSnapshotCompletion(ctx, &pvc); err != nil {
+		return reconcile.Result{}, err
+	}
 
 	// Reconcile the PVC
 	if err := r.ReconcilePVC(ctx, &pvc); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if err := r.CreateNewPVC(ctx, &pvc); err != nil {
 		return reconcile.Result{}, err
 	}
 
