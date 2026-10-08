@@ -6,6 +6,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -56,6 +57,11 @@ func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolu
 
 	newSpec := new(pvc.Spec)
 	*newSpec.StorageClassName = "standard-rwo-snapshot-class" //TODO: Make this configurable
+	newSpec.DataSource = &v1.TypedLocalObjectReference{
+		APIGroup: pointer.String("snapshot.storage.k8s.io"),
+		Kind:     "VolumeSnapshot",
+		Name:     pvc.Name + "-snapshot",
+	}
 
 	newPVC = v1.PersistentVolumeClaim{
 		TypeMeta:   pvc.TypeMeta,
