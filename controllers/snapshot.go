@@ -11,6 +11,10 @@ import (
 )
 
 func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "enabled" {
+		return nil
+	}
+
 	snapshotObjectKey := types.NamespacedName{
 		Namespace: pvc.Namespace,
 		Name:      pvc.Name + "-snapshot",
@@ -41,22 +45,30 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 		return err
 	}
 
-	return nil
+	pvc.Annotations[AnnotationKEY] = "snapshot-in-progress"
+	err := r.Update(ctx, pvc)
+
+	return err
 }
 
 func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "snapshot-in-progress" {
+		return nil
+	}
+
 	var snapshot snapshotv1.VolumeSnapshot
 	snapshotObjectKey := types.NamespacedName{
 		Namespace: pvc.Namespace,
 		Name:      pvc.Name + "-snapshot",
 	}
 	for {
-		snapShotError := r.Get(ctx, snapshotObjectKey, &snapshot)
-		if snapShotError != nil {
-			return snapShotError
+		if err := r.Get(ctx, snapshotObjectKey, &snapshot); err != nil {
+			return err
 		}
 		if snapshot.Status != nil && snapshot.Status.ReadyToUse != nil && *snapshot.Status.ReadyToUse {
-			return nil
+			pvc.Annotations[AnnotationKEY] = "snapshot-completed"
+			err := r.Update(ctx, pvc)
+			return err
 		}
 		time.Sleep(10 * time.Second)
 	}

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"strings"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,8 +21,7 @@ type PVCController struct {
 var _ reconcile.Reconciler = &PVCController{}
 
 func (r *PVCController) InitializePVCController(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
-	_, exists := pvc.Annotations[AnnotationKEY]
-	if !exists {
+	if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
 		return false
 	}
 
@@ -33,14 +33,21 @@ func (r *PVCController) InitializePVCController(ctx context.Context, pvc *v1.Per
 }
 
 func (r *PVCController) ReconcilePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
-	pvc.Name = pvc.Name + "-migrated"
-	if err := r.Update(ctx, pvc); err != nil {
-		return err
+	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "snapshot-completed" {
+		return nil
 	}
-	return nil
+
+	pvc.Name = pvc.Name + "-migrated"
+	pvc.Annotations[AnnotationKEY] = "renamed"
+	err := r.Update(ctx, pvc)
+	return err
 }
 
 func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "renamed" {
+		return nil
+	}
+
 	pvcName := strings.TrimSuffix(pvc.Name, "-migrated")
 	pvcNamespacedName := client.ObjectKey{
 		Namespace: pvc.Namespace,
@@ -73,7 +80,9 @@ func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolu
 		return err
 	}
 
-	return nil
+	pvc.Annotations[AnnotationKEY] = "new-pvc-created"
+	err := r.Update(ctx, pvc)
+	return err
 }
 
 func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
@@ -99,7 +108,7 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	}
 
 	if err := r.CreateNewPVC(ctx, &pvc); err != nil {
-		return reconcile.Result{}, err
+		return reconcile.Result{RequeueAfter: 30 * time.Second}, err
 	}
 
 	return reconcile.Result{}, nil
