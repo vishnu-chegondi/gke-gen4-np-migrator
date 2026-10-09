@@ -191,3 +191,8 @@ prometheus:
 networkPolicy:
   enabled: false
 
+
+configs:
+  OLD_STORAGE_CLASSES: standard,standard-rwo,standard-rwx
+  STORAGE_CLASSNAME: hyper-balanced
+  VOLUME_SNAPHOT_CLASS: csi-gcs-snapshotter

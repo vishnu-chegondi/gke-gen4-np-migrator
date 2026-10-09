@@ -1,0 +1,15 @@
+apiVersion: v1
+data:
+  OLD_STORAGE_CLASSES: {{ .Values.configs.OLD_STORAGE_CLASSES | quote }}
+  STORAGE_CLASSNAME: {{ .Values.configs.STORAGE_CLASSNAME | quote }}
+  VOLUME_SNAPHOT_CLASS: {{ .Values.configs.VOLUME_SNAPHOT_CLASS | quote }}
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "gke-gen4-np-migrator.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    control-plane: controller-manager
+  name: {{ include "gke-gen4-np-migrator.resourceName" (dict "suffix" "gke-np-migrator-config" "context" $) }}
+  namespace: {{ .Release.Namespace }}

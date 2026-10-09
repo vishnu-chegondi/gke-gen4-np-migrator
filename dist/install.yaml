@@ -149,6 +149,20 @@ subjects:
   namespace: gke-gen4-np-migrator-system
 ---
 apiVersion: v1
+data:
+  OLD_STORAGE_CLASSES: standard,standard-rwo,standard-rwx
+  STORAGE_CLASSNAME: hyper-balanced
+  VOLUME_SNAPHOT_CLASS: csi-gcs-snapshotter
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gke-gen4-np-migrator
+    control-plane: controller-manager
+  name: gke-gen4-np-migrator-gke-np-migrator-config
+  namespace: gke-gen4-np-migrator-system
+---
+apiVersion: v1
 kind: Service
 metadata:
   labels:
