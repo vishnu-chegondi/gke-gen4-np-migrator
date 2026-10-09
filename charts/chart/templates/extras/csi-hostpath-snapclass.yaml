@@ -1,0 +1,17 @@
+{{- if .Values.createVolumeSnapshot.enabled }}
+apiVersion: snapshot.storage.k8s.io/v1beta1
+deletionPolicy: Retain
+driver: pd.csi.storage.gke.io
+kind: VolumeSnapshotClass
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "gke-gen4-np-migrator.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  name: {{ include "gke-gen4-np-migrator.resourceName" (dict "suffix" "csi-hostpath-snapclass" "context" $) }}
+  namespace: {{ .Release.Namespace }}
+parameters:
+  storage-locations: us-central1
+  type: regional
+{{- end }}

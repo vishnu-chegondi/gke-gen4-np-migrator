@@ -211,6 +211,9 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
+        envFrom:
+        - configMapRef:
+            name: gke-gen4-np-migrator-gke-np-migrator-config
         image: controller:latest
         livenessProbe:
           httpGet:
@@ -250,3 +253,17 @@ spec:
       serviceAccountName: gke-gen4-np-migrator-controller-manager
       terminationGracePeriodSeconds: 10
       volumes: []
+---
+apiVersion: snapshot.storage.k8s.io/v1beta1
+deletionPolicy: Retain
+driver: pd.csi.storage.gke.io
+kind: VolumeSnapshotClass
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gke-gen4-np-migrator
+  name: gke-gen4-np-migrator-csi-hostpath-snapclass
+  namespace: gke-gen4-np-migrator-system
+parameters:
+  storage-locations: us-central1
+  type: regional

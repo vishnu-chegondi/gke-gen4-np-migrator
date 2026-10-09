@@ -97,6 +97,9 @@ spec:
             cpu: 10m
             memory: 64Mi
         volumeMounts: []
+        envFrom:
+          - configMapRef:
+              name: gke-np-migrator-config
       volumes: []
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
