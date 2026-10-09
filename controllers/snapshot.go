@@ -15,7 +15,7 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "enabled" {
 		return nil
 	}
-	newStorageClass, err := ReadConfigMapKey(ctx, r, "STORAGE_CLASSNAME")
+	newSnapshotClass, err := ReadConfigMapKey(ctx, r, "VOLUME_SNAPHOT_CLASS")
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 			Source: snapshotv1.VolumeSnapshotSource{
 				PersistentVolumeClaimName: &pvc.Name,
 			},
-			VolumeSnapshotClassName: pointer.String(newStorageClass),
+			VolumeSnapshotClassName: pointer.String(newSnapshotClass),
 		},
 	}
 
