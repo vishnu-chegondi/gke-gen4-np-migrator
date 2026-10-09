@@ -8,11 +8,16 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 )
 
 func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "enabled" {
 		return nil
+	}
+	newStorageClass, err := ReadConfigMapKey(ctx, r, "STORAGE_CLASSNAME")
+	if err != nil {
+		return err
 	}
 
 	snapshotObjectKey := types.NamespacedName{
@@ -37,7 +42,7 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 			Source: snapshotv1.VolumeSnapshotSource{
 				PersistentVolumeClaimName: &pvc.Name,
 			},
-			VolumeSnapshotClassName: new("standard-rwo-snapshot-class"), // TODO: Make this configurable
+			VolumeSnapshotClassName: pointer.String(newStorageClass),
 		},
 	}
 
@@ -46,7 +51,7 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 	}
 
 	pvc.Annotations[AnnotationKEY] = "snapshot-in-progress"
-	err := r.Update(ctx, pvc)
+	err = r.Update(ctx, pvc)
 
 	return err
 }

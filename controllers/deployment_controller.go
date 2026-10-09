@@ -1,10 +1,9 @@
 package controllers
 
-// TODO: Update the standard-rwo storage class to use the provided storage classes
-
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"k8s.io/api/apps/v1"
@@ -31,6 +30,10 @@ func (r *DeploymentController) InitializeDeploymentController(ctx context.Contex
 	if !exists {
 		return false
 	}
+	storageClassNames, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
+	if err != nil {
+		return false
+	}
 
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
@@ -38,8 +41,10 @@ func (r *DeploymentController) InitializeDeploymentController(ctx context.Contex
 			if err := r.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
 				return true // If we can't get the PVC, assume it's in the migration process and return true
 			}
-			if *pvc.Spec.StorageClassName == "standard-rwo" {
-				return true
+			for _, scName := range strings.Split(storageClassNames, ",") {
+				if *pvc.Spec.StorageClassName == scName {
+					return true
+				}
 			}
 		}
 	}
@@ -48,6 +53,11 @@ func (r *DeploymentController) InitializeDeploymentController(ctx context.Contex
 }
 
 func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Context, deployment *v1.Deployment) error {
+	storageClassNames, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
+	if err != nil {
+		return err
+	}
+
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 
@@ -55,7 +65,14 @@ func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Cont
 			if err := r.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
 				return err
 			}
-			if *pvc.Spec.StorageClassName != "standard-rwo" {
+			skip := true
+			for _, scName := range strings.Split(storageClassNames, ",") {
+				if *pvc.Spec.StorageClassName == scName {
+					skip = false
+					break
+				}
+			}
+			if skip {
 				continue
 			}
 
@@ -84,14 +101,21 @@ func (r *DeploymentController) ReconcileDeployment(ctx context.Context, deployme
 }
 
 func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deployment *v1.Deployment) error {
+	oldStorageClasses, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
+	if err != nil {
+		return err
+	}
+
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 			var pvc corev1.PersistentVolumeClaim
 			if err := r.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
 				return err // If we can't get the PVC, assume it's in the migration process and return error to retry loop
 			}
-			if *pvc.Spec.StorageClassName == "standard-rwo" {
-				return fmt.Errorf("PVC %s/%s is still using the standard-rwo storage class", pvc.Namespace, pvc.Name)
+			for _, scName := range strings.Split(oldStorageClasses, ",") {
+				if *pvc.Spec.StorageClassName == scName {
+					return fmt.Errorf("PVC %s/%s is still using the old storage class %s", pvc.Namespace, pvc.Name, scName)
+				}
 			}
 		}
 	}

@@ -24,12 +24,22 @@ func (r *PVCController) InitializePVCController(ctx context.Context, pvc *v1.Per
 	if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
 		return false
 	}
-
-	if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != "standard-rwo" {
+	oldStorageClasses, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
+	if err != nil {
 		return false
 	}
 
-	return true
+	if pvc.Spec.StorageClassName == nil {
+		return false
+	}
+
+	for _, oldStorageClass := range strings.Split(oldStorageClasses, ",") {
+		if *pvc.Spec.StorageClassName == oldStorageClass {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *PVCController) ReconcilePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
@@ -47,6 +57,10 @@ func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolu
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "renamed" {
 		return nil
 	}
+	newStorageClass, err := ReadConfigMapKey(ctx, r, "STORAGE_CLASSNAME")
+	if err != nil {
+		return err
+	}
 
 	pvcName := strings.TrimSuffix(pvc.Name, "-migrated")
 	pvcNamespacedName := client.ObjectKey{
@@ -63,7 +77,7 @@ func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolu
 	newObjectMeta.Name = pvcName
 
 	newSpec := new(pvc.Spec)
-	*newSpec.StorageClassName = "standard-rwo-snapshot-class" //TODO: Make this configurable
+	*newSpec.StorageClassName = newStorageClass
 	newSpec.DataSource = &v1.TypedLocalObjectReference{
 		APIGroup: pointer.String("snapshot.storage.k8s.io"),
 		Kind:     "VolumeSnapshot",
@@ -81,7 +95,7 @@ func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolu
 	}
 
 	pvc.Annotations[AnnotationKEY] = "new-pvc-created"
-	err := r.Update(ctx, pvc)
+	err = r.Update(ctx, pvc)
 	return err
 }
 
