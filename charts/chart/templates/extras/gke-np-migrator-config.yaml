@@ -11,5 +11,5 @@ metadata:
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     control-plane: controller-manager
-  name: {{ include "gke-gen4-np-migrator.resourceName" (dict "suffix" "gke-np-migrator-config" "context" $) }}
+  name: gke-np-migrator-config
   namespace: {{ .Release.Namespace }}

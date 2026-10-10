@@ -9,5 +9,5 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 data:
   OLD_STORAGE_CLASSES: "standard,standard-rwo,standard-rwx"
-  STORAGE_CLASSNAME: "hyper-balanced"
+  STORAGE_CLASSNAME: "hyper-balanced-sc"
   VOLUME_SNAPHOT_CLASS: "csi-gcs-snapshotter"

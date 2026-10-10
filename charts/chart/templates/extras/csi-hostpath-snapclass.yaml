@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/name: {{ include "gke-gen4-np-migrator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
-  name: {{ include "gke-gen4-np-migrator.resourceName" (dict "suffix" "csi-hostpath-snapclass" "context" $) }}
+  name: {{ .Values.configs.VOLUME_SNAPHOT_CLASS }}
   namespace: {{ .Release.Namespace }}
 parameters:
   storage-locations: us-central1

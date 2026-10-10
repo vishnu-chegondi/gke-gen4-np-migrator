@@ -2,7 +2,7 @@ allowVolumeExpansion: true
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: {{ include "gke-gen4-np-migrator.resourceName" (dict "suffix" "hyperdisk-balanced-sc" "context" $) }}
+  name: {{ .Values.configs.STORAGE_CLASSNAME }}
 parameters:
   provisioned-iops-on-create: "7000"
   provisioned-throughput-on-create: 250Mi
