@@ -16,7 +16,8 @@ manager:
   replicas: 1
 
   image:
-    repository: controller
+    repository: vishnuchegondi/storage-pool-migrator
+    tag: test
     ## Image tag (defaults to Chart.appVersion if not set)
     ##
     # tag: ""
