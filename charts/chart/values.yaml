@@ -200,4 +200,4 @@ configs:
 
 
 createVolumeSnapshot:
-  enabled: false
+  enabled: true
