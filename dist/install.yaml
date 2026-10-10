@@ -254,7 +254,7 @@ spec:
       terminationGracePeriodSeconds: 10
       volumes: []
 ---
-apiVersion: snapshot.storage.k8s.io/v1beta1
+apiVersion: snapshot.storage.k8s.io/v1
 deletionPolicy: Retain
 driver: pd.csi.storage.gke.io
 kind: VolumeSnapshotClass
