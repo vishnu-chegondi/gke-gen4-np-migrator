@@ -77,6 +77,12 @@ func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolu
 	newObjectMeta.Name = pvcName
 
 	newSpec := new(pvc.Spec)
+	for _, accessMode := range pvc.Spec.AccessModes {
+		if accessMode == v1.ReadWriteMany {
+			newSpec.VolumeMode = new(v1.PersistentVolumeBlock)
+			break
+		}
+	}
 	*newSpec.StorageClassName = newStorageClass
 	newSpec.DataSource = &v1.TypedLocalObjectReference{
 		APIGroup: pointer.String("snapshot.storage.k8s.io"),

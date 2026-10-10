@@ -7,6 +7,18 @@ metadata:
     control-plane: controller-manager
   name: gke-gen4-np-migrator-system
 ---
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gke-gen4-np-migrator-hyperdisk-balanced-sc
+parameters:
+  provisioned-iops-on-create: "7000"
+  provisioned-throughput-on-create: 250Mi
+  type: hyperdisk-balanced
+provisioner: pd.csi.storage.gke.io
+volumeBindingMode: WaitForFirstConsumer
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
