@@ -90,8 +90,23 @@ func (r *DeploymentController) ReconcileDeployment(ctx context.Context, deployme
 		return err
 	}
 
-	deployment.Spec.Replicas = pointer.Int32(0)
-	// TODO: Update new tolerations and remove old tolerations for deployments
+	deployment.Spec.Replicas = pointer.Int32(0) // Scale down the deployment
+
+	// Update the deployment with the new tolerations
+	currentTOLERATIONS := deployment.Spec.Template.Spec.Tolerations
+	data, err := ReadConfigMapData(ctx, r)
+	if err != nil {
+		return err
+	}
+	tolerationSTRING := data["TOLERATIONS"]
+	tolerationOBJECT, err := GetTolerationObject(tolerationSTRING)
+	if err != nil {
+		return err
+	}
+	currentTOLERATIONS = append(currentTOLERATIONS, tolerationOBJECT)
+	deployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
+
+	// Update the deployment
 	if err := r.Update(ctx, deployment); err != nil {
 		return err
 	}

@@ -11,3 +11,8 @@ data:
   OLD_STORAGE_CLASSES: "standard,standard-rwo,standard-rwx"
   STORAGE_CLASSNAME: "hyper-balanced-sc"
   VOLUME_SNAPHOT_CLASS: "csi-gcs-snapshotter"
+  TOLERATIONS: |
+    - effect: PreferNoSchedule
+      key: default-n4d-node-pool
+      value: "true"
+      

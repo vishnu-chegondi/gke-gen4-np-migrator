@@ -3,6 +3,7 @@ data:
   OLD_STORAGE_CLASSES: {{ .Values.configs.OLD_STORAGE_CLASSES | quote }}
   STORAGE_CLASSNAME: {{ .Values.configs.STORAGE_CLASSNAME | quote }}
   VOLUME_SNAPHOT_CLASS: {{ .Values.configs.VOLUME_SNAPHOT_CLASS | quote }}
+  TOLERATIONS: {{ .Values.configs.TOLERATIONS | quote }}
 kind: ConfigMap
 metadata:
   labels:
