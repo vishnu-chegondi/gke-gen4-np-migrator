@@ -103,6 +103,8 @@ spec:
           {{- else }}
           []
           {{- end }}
+          - name: CONFIG_MAP_NAMESPACE
+            value: {{ .Release.Namespace }}
         envFrom:
         - configMapRef:
             name: {{ include "gke-gen4-np-migrator.resourceName" (dict "suffix" "gke-np-migrator-config" "context" $) }}

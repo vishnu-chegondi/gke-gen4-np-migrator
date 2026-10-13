@@ -37,10 +37,8 @@ manager:
   ## Environment variables
   ##
   env:
-    - name: CONFIGMAP_NAME
+    - name: CONFIG_MAP_NAME
       value: gke-np-migrator-config
-    - name: CONFIGMAP_NAMESPACE
-      value: system
 
   ## Env overrides (--set manager.envOverrides.VAR=value)
   ## Same name in env above: this value takes precedence.
@@ -204,3 +202,16 @@ prometheus:
 networkPolicy:
   enabled: false
 
+
+configs:
+  OLD_STORAGE_CLASSES: standard,standard-rwo,standard-rwx
+  STORAGE_CLASSNAME: hyper-balanced-sc
+  VOLUME_SNAPHOT_CLASS: csi-gcs-snapshotter
+  TOLERATIONS: |
+    - effect: PreferNoSchedule
+      key: default-n4d-node-pool
+      value: "true"
+
+
+createVolumeSnapshot:
+  enabled: true
