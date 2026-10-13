@@ -279,7 +279,7 @@ spec:
           value: system
         envFrom:
         - configMapRef:
-            name: gke-gen4-np-migrator-gke-np-migrator-config
+            name: gke-np-migrator-config
         image: vishnuchegondi/storage-pool-migrator:test
         imagePullPolicy: Always
         livenessProbe:

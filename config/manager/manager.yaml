@@ -98,13 +98,10 @@ spec:
             cpu: 10m
             memory: 64Mi
         volumeMounts: []
-        envFrom:
-          - configMapRef:
-              name: gke-np-migrator-config
         env:
-          - name: CONFIGMAP_NAME
+          - name: CONFIG_MAP_NAME
             value: gke-np-migrator-config
-          - name: CONFIGMAP_NAMESPACE
+          - name: CONFIG_MAP_NAMESPACE
             value: system
       volumes: []
       serviceAccountName: controller-manager

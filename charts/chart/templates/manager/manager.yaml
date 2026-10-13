@@ -107,7 +107,7 @@ spec:
             value: {{ .Release.Namespace }}
         envFrom:
         - configMapRef:
-            name: {{ include "gke-gen4-np-migrator.resourceName" (dict "suffix" "gke-np-migrator-config" "context" $) }}
+            name: gke-np-migrator-config
         image: "{{ .Values.manager.image.repository | default "controller" }}{{- if not (contains "@" (.Values.manager.image.repository | default "controller")) }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}{{- end }}"
         {{- with .Values.manager.image.pullPolicy }}
         imagePullPolicy: {{ . }}
