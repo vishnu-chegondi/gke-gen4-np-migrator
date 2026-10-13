@@ -104,11 +104,13 @@ func (r *DeploymentController) ReconcileDeployment(ctx context.Context, deployme
 		return err
 	}
 	tolerationSTRING := data["TOLERATIONS"]
-	tolerationOBJECT, err := GetTolerationObject(tolerationSTRING)
+	tolerationOBJECTS, err := GetTolerationObject(tolerationSTRING)
 	if err != nil {
 		return err
 	}
-	currentTOLERATIONS = append(currentTOLERATIONS, tolerationOBJECT)
+	for _, toleration := range tolerationOBJECTS {
+		currentTOLERATIONS = append(currentTOLERATIONS, toleration)
+	}
 	deployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
 
 	// Update the deployment
