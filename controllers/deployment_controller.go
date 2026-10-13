@@ -26,6 +26,12 @@ type DeploymentController struct {
 
 var _ reconcile.Reconciler = &DeploymentController{}
 
+func (r *DeploymentController) GetDeployment(ctx context.Context, name, namespace string) (*v1.Deployment, error) {
+	deployment := &v1.Deployment{}
+	err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, deployment)
+	return deployment, err
+}
+
 func (r *DeploymentController) InitializeDeploymentController(ctx context.Context, deployment *v1.Deployment) bool {
 	_, exists := deployment.Annotations[AnnotationKEY]
 	if !exists {
@@ -145,38 +151,38 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 }
 
 func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
-	var deployment v1.Deployment
-	if err := r.Get(ctx, request.NamespacedName, &deployment); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+	deployment, err := r.GetDeployment(ctx, request.Name, request.Namespace)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 
-	if !r.InitializeDeploymentController(ctx, &deployment) {
+	if !r.InitializeDeploymentController(ctx, deployment) {
 		return reconcile.Result{}, nil
 	}
 
 	// Define the deployment annotation updater
 	deploymentAnnotationUpdater := &DeploymentAnnotationUpdater{
 		r:          r,
-		deployment: &deployment,
+		deployment: deployment,
 	}
 	if err := deploymentAnnotationUpdater.Progress(ctx); err != nil {
 		return reconcile.Result{}, err
 	}
 
 	// Scaledown the deployment and update the tolerations
-	if err := r.ReconcileDeployment(ctx, &deployment, deploymentAnnotationUpdater); err != nil {
+	if err := r.ReconcileDeployment(ctx, deployment, deploymentAnnotationUpdater); err != nil {
 		return reconcile.Result{}, err
 	}
 
 	// Loop through all the volumes and for each PVC Claim volume, add the annotation
-	if err := r.UpdateDeploymentVolumeAnnotation(ctx, &deployment); err != nil {
+	if err := r.UpdateDeploymentVolumeAnnotation(ctx, deployment); err != nil {
 		return reconcile.Result{}, err
 	}
 	if err := deploymentAnnotationUpdater.Waiting(ctx); err != nil {
 		return reconcile.Result{}, err
 	}
 
-	if err := r.WaitForVolumeMigration(ctx, &deployment); err != nil {
+	if err := r.WaitForVolumeMigration(ctx, deployment); err != nil {
 		return reconcile.Result{RequeueAfter: 60 * time.Second}, nil
 	}
 	if err := deploymentAnnotationUpdater.Done(ctx); err != nil {
