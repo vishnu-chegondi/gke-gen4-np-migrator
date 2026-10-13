@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 
+	"github.com/vishnu-chegondi/gke-gen4-np-migrator/controllers"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -177,6 +178,24 @@ func main() {
 		setupLog.Error(err, "Failed to start manager")
 		os.Exit(1)
 	}
+
+	if err := (&controllers.DeploymentController{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create deployment controller", "controller", "Deployment")
+		os.Exit(1)
+	}
+
+	if err := (&controllers.PVCController{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create pvc controller", "controller", "PVC")
+		os.Exit(1)
+	}
+
+	setupLog.Info("Successfully created controllers")
 
 	// +kubebuilder:scaffold:builder
 

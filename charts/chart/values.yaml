@@ -17,11 +17,10 @@ manager:
 
   image:
     repository: vishnuchegondi/storage-pool-migrator
-    tag: test
     ## Image tag (defaults to Chart.appVersion if not set)
     ##
-    # tag: ""
-    pullPolicy: IfNotPresent
+    tag: "test"
+    pullPolicy: Always
 
   ## Arguments
   ##

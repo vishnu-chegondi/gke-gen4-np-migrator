@@ -85,6 +85,53 @@ rules:
   - get
   - list
   - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - v1
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - v1
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -163,7 +210,9 @@ subjects:
 apiVersion: v1
 data:
   OLD_STORAGE_CLASSES: standard,standard-rwo,standard-rwx
-  STORAGE_CLASSNAME: hyper-balanced
+  STORAGE_CLASSNAME: hyper-balanced-sc
+  TOLERATIONS: "- effect: PreferNoSchedule\n  key: default-n4d-node-pool\n  value:
+    \"true\"\n  \n"
   VOLUME_SNAPHOT_CLASS: csi-gcs-snapshotter
 kind: ConfigMap
 metadata:
@@ -226,7 +275,7 @@ spec:
         envFrom:
         - configMapRef:
             name: gke-gen4-np-migrator-gke-np-migrator-config
-        image: controller:latest
+        image: vishnuchegondi/storage-pool-migrator:test
         livenessProbe:
           httpGet:
             path: /healthz

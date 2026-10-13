@@ -63,8 +63,9 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-        image: controller:latest
+        image: vishnuchegondi/storage-pool-migrator:test
         name: manager
+        imagePullPolicy: Always
         ports:
         - containerPort: 8081
           name: health
