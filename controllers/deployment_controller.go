@@ -169,8 +169,17 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, err
 	}
 
+	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	// Scaledown the deployment and update the tolerations
 	if err := r.ReconcileDeployment(ctx, deployment, deploymentAnnotationUpdater); err != nil {
+		return reconcile.Result{}, err
+	}
+	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
+	if err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -178,7 +187,15 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 	if err := r.UpdateDeploymentVolumeAnnotation(ctx, deployment); err != nil {
 		return reconcile.Result{}, err
 	}
+	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 	if err := deploymentAnnotationUpdater.Waiting(ctx); err != nil {
+		return reconcile.Result{}, err
+	}
+	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
+	if err != nil {
 		return reconcile.Result{}, err
 	}
 
