@@ -18,10 +18,10 @@ rules:
   resources: ["storageclasses"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
-- apiGroups: ["v1"]
+- apiGroups: [""]
   resources: ["configmaps"]
   verbs: ["get", "list",]
 
-- apiGroups: ["v1"]
+- apiGroups: [""]
   resources: ["persistentvolumeclaims"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

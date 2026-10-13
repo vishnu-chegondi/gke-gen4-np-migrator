@@ -52,14 +52,14 @@ rules:
   - patch
   - delete
 - apiGroups:
-  - v1
+  - ""
   resources:
   - configmaps
   verbs:
   - get
   - list
 - apiGroups:
-  - v1
+  - ""
   resources:
   - persistentvolumeclaims
   verbs:

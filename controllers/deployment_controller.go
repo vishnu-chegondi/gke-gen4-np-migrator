@@ -12,6 +12,7 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -54,6 +55,7 @@ func (r *DeploymentController) InitializeDeploymentController(ctx context.Contex
 
 func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Context, deployment *v1.Deployment) error {
 	storageClassNames, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
+	logger := log.FromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -61,8 +63,11 @@ func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Cont
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 
+			pvcObjectKey := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}
+			logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)
+
 			var pvc corev1.PersistentVolumeClaim
-			if err := r.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
+			if err := r.Get(ctx, pvcObjectKey, &pvc); err != nil {
 				return err
 			}
 			skip := true

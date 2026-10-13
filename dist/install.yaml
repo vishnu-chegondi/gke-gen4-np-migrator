@@ -114,14 +114,14 @@ rules:
   - patch
   - delete
 - apiGroups:
-  - v1
+  - ""
   resources:
   - configmaps
   verbs:
   - get
   - list
 - apiGroups:
-  - v1
+  - ""
   resources:
   - persistentvolumeclaims
   verbs:
@@ -273,13 +273,10 @@ spec:
         command:
         - /manager
         env:
-        - name: CONFIGMAP_NAME
+        - name: CONFIG_MAP_NAME
           value: gke-np-migrator-config
-        - name: CONFIGMAP_NAMESPACE
+        - name: CONFIG_MAP_NAMESPACE
           value: system
-        envFrom:
-        - configMapRef:
-            name: gke-np-migrator-config
         image: vishnuchegondi/storage-pool-migrator:test
         imagePullPolicy: Always
         livenessProbe:
