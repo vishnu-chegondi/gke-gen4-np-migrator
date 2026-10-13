@@ -89,9 +89,23 @@ spec:
         {{- end }}
         command:
         - /manager
+        env:
+        {{- if or .Values.manager.env (and (kindIs "map" .Values.manager.envOverrides) (not (empty .Values.manager.envOverrides))) }}
+          {{- if .Values.manager.env }}
+          {{- toYaml .Values.manager.env | nindent 10 }}
+          {{- end }}
+          {{- if kindIs "map" .Values.manager.envOverrides }}
+          {{- range $k, $v := .Values.manager.envOverrides }}
+          - name: {{ $k }}
+            value: {{ $v | quote }}
+          {{ end }}
+          {{- end }}
+          {{- else }}
+          []
+          {{- end }}
         envFrom:
         - configMapRef:
-            name: gke-np-migrator-config
+            name: {{ include "gke-gen4-np-migrator.resourceName" (dict "suffix" "gke-np-migrator-config" "context" $) }}
         image: "{{ .Values.manager.image.repository | default "controller" }}{{- if not (contains "@" (.Values.manager.image.repository | default "controller")) }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}{{- end }}"
         {{- with .Values.manager.image.pullPolicy }}
         imagePullPolicy: {{ . }}

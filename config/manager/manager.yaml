@@ -101,6 +101,11 @@ spec:
         envFrom:
           - configMapRef:
               name: gke-np-migrator-config
+        env:
+          - name: CONFIGMAP_NAME
+            value: gke-np-migrator-config
+          - name: CONFIGMAP_NAMESPACE
+            value: system
       volumes: []
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

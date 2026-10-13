@@ -272,10 +272,16 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
+        env:
+        - name: CONFIGMAP_NAME
+          value: gke-np-migrator-config
+        - name: CONFIGMAP_NAMESPACE
+          value: system
         envFrom:
         - configMapRef:
             name: gke-gen4-np-migrator-gke-np-migrator-config
         image: vishnuchegondi/storage-pool-migrator:test
+        imagePullPolicy: Always
         livenessProbe:
           httpGet:
             path: /healthz
