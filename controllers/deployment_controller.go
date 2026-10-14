@@ -96,11 +96,7 @@ func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Cont
 	return nil
 }
 
-func (r *DeploymentController) ReconcileDeployment(ctx context.Context, deployment *v1.Deployment, annotationUpdater *DeploymentAnnotationUpdater) error {
-	if err := annotationUpdater.ReplicaCount(ctx); err != nil {
-		return err
-	}
-
+func (r *DeploymentController) ReconcileDeployment(ctx context.Context, deployment *v1.Deployment) error {
 	deployment.Spec.Replicas = pointer.Int32(0) // Scale down the deployment
 
 	// Update the deployment with the new tolerations
@@ -118,6 +114,8 @@ func (r *DeploymentController) ReconcileDeployment(ctx context.Context, deployme
 		currentTOLERATIONS = append(currentTOLERATIONS, toleration)
 	}
 	deployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
+	deployment.Annotations[AnnotationKEY] = "progress"
+	deployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
 
 	// Update the deployment
 	if err := r.Update(ctx, deployment); err != nil {
@@ -160,22 +158,8 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, nil
 	}
 
-	// Define the deployment annotation updater
-	deploymentAnnotationUpdater := &DeploymentAnnotationUpdater{
-		r:          r,
-		deployment: deployment,
-	}
-	if err := deploymentAnnotationUpdater.Progress(ctx); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-
 	// Scaledown the deployment and update the tolerations
-	if err := r.ReconcileDeployment(ctx, deployment, deploymentAnnotationUpdater); err != nil {
+	if err := r.ReconcileDeployment(ctx, deployment); err != nil {
 		return reconcile.Result{}, err
 	}
 	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
@@ -187,22 +171,16 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 	if err := r.UpdateDeploymentVolumeAnnotation(ctx, deployment); err != nil {
 		return reconcile.Result{}, err
 	}
-	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-	if err := deploymentAnnotationUpdater.Waiting(ctx); err != nil {
-		return reconcile.Result{}, err
-	}
-	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
 
 	if err := r.WaitForVolumeMigration(ctx, deployment); err != nil {
 		return reconcile.Result{RequeueAfter: 60 * time.Second}, nil
 	}
-	if err := deploymentAnnotationUpdater.Done(ctx); err != nil {
+	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	deployment.Annotations[AnnotationKEY] = "enabled"
+	if err := r.Update(ctx, deployment); err != nil {
 		return reconcile.Result{}, err
 	}
 
