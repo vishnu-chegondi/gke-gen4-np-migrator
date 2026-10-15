@@ -10,6 +10,7 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -21,11 +22,13 @@ type PVCController struct {
 var _ reconcile.Reconciler = &PVCController{}
 
 func (r *PVCController) InitializePVCController(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
-	if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
+	logger := log.FromContext(ctx)
+	if enabled, exists := pvc.Annotations[AnnotationKEY]; !exists || enabled != "enabled" {
 		return false
 	}
 	oldStorageClasses, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
 	if err != nil {
+		logger.Error(err, "Failed to read OLD_STORAGE_CLASSES from ConfigMap")
 		return false
 	}
 
@@ -118,13 +121,28 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	if err := r.CreateSnapshotForPVC(ctx, &pvc); err != nil {
 		return reconcile.Result{}, err
 	}
+	if err := r.Get(ctx, request.NamespacedName, &pvc); err != nil {
+		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+
 	if err := r.WaitForSnapshotCompletion(ctx, &pvc); err != nil {
 		return reconcile.Result{}, err
 	}
 
 	// Reconcile the PVC
+	if err := r.Get(ctx, request.NamespacedName, &pvc); err != nil {
+		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
 	if err := r.ReconcilePVC(ctx, &pvc); err != nil {
 		return reconcile.Result{}, err
+	}
+	newPVCName := strings.TrimSuffix(pvc.Name, "-migrated")
+	newNamespacedName := client.ObjectKey{
+		Namespace: pvc.Namespace,
+		Name:      newPVCName,
+	}
+	if err := r.Get(ctx, newNamespacedName, &pvc); err != nil {
+		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if err := r.CreateNewPVC(ctx, &pvc); err != nil {
