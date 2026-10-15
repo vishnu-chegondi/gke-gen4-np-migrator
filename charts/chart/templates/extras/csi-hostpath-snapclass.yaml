@@ -13,5 +13,4 @@ metadata:
   namespace: {{ .Release.Namespace }}
 parameters:
   storage-locations: us-central1
-  type: regional
 {{- end }}

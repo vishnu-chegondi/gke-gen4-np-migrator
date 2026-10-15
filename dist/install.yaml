@@ -343,4 +343,3 @@ metadata:
   namespace: gke-gen4-np-migrator-system
 parameters:
   storage-locations: us-central1
-  type: regional

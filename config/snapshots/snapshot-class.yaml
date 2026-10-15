@@ -9,4 +9,3 @@ driver: pd.csi.storage.gke.io
 deletionPolicy: Retain
 parameters:
   storage-locations: us-central1
-  type: regional

@@ -33,8 +33,10 @@ func (r *DeploymentController) GetDeployment(ctx context.Context, name, namespac
 }
 
 func (r *DeploymentController) InitializeDeploymentController(ctx context.Context, deployment *v1.Deployment) bool {
+	logger := log.FromContext(ctx)
 	_, exists := deployment.Annotations[AnnotationKEY]
 	if !exists {
+		logger.Info("Deployment does not have annotation", "deployment", deployment.Name)
 		return false
 	}
 	storageClassNames, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
@@ -46,7 +48,8 @@ func (r *DeploymentController) InitializeDeploymentController(ctx context.Contex
 		if volume.PersistentVolumeClaim != nil {
 			var pvc corev1.PersistentVolumeClaim
 			if err := r.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
-				return true // If we can't get the PVC, assume it's in the migration process and return true
+				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
+				return false // If we can't get the PVC, assume it's in the migration process and return true
 			}
 			for _, scName := range strings.Split(storageClassNames, ",") {
 				if *pvc.Spec.StorageClassName == scName {
@@ -60,6 +63,10 @@ func (r *DeploymentController) InitializeDeploymentController(ctx context.Contex
 }
 
 func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Context, deployment *v1.Deployment) error {
+	if deployment.Annotations[AnnotationKEY] != "progress" {
+		return nil
+	}
+
 	storageClassNames, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
 	logger := log.FromContext(ctx)
 	if err != nil {
@@ -97,6 +104,9 @@ func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Cont
 }
 
 func (r *DeploymentController) ReconcileDeployment(ctx context.Context, deployment *v1.Deployment) error {
+	if deployment.Annotations[AnnotationKEY] != "enabled" {
+		return nil
+	}
 	deployment.Spec.Replicas = pointer.Int32(0) // Scale down the deployment
 
 	// Update the deployment with the new tolerations
@@ -127,6 +137,7 @@ func (r *DeploymentController) ReconcileDeployment(ctx context.Context, deployme
 }
 
 func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deployment *v1.Deployment) error {
+	logger := log.FromContext(ctx)
 	oldStorageClasses, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
 	if err != nil {
 		return err
@@ -135,6 +146,7 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 			var pvc corev1.PersistentVolumeClaim
+			logger.Info("Checking PVC", "pvc", volume.PersistentVolumeClaim.ClaimName)
 			if err := r.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
 				return err // If we can't get the PVC, assume it's in the migration process and return error to retry loop
 			}
@@ -149,6 +161,7 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 }
 
 func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+	logger := log.FromContext(ctx)
 	deployment, err := r.GetDeployment(ctx, request.Name, request.Namespace)
 	if err != nil {
 		return reconcile.Result{}, err
@@ -180,6 +193,7 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, err
 	}
 	deployment.Annotations[AnnotationKEY] = "enabled"
+	logger.Info("All volumes are migrated and updating the annotation to be enabled back")
 	if err := r.Update(ctx, deployment); err != nil {
 		return reconcile.Result{}, err
 	}
