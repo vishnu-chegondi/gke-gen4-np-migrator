@@ -46,9 +46,8 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
 				continue // Continue to check next volume
 			}
-
 			for _, scName := range strings.Split(storageClassNames, ",") {
-				if *pvc.Spec.StorageClassName == scName {
+				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != "enabled" {
 					logger.Info("PVC is in the old storage class", "pvc", volume.PersistentVolumeClaim.ClaimName)
 					return true
 				}
@@ -60,29 +59,24 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 
 func (r *DeploymentController) ShouldTriggerDeployment(ctx context.Context, deployment *v1.Deployment) bool {
 	logger := log.FromContext(ctx)
-	if _, exists := deployment.Annotations[AnnotationKEY]; !exists {
-		logger.Info("Deployment does not have annotation", "deployment", deployment.Name)
+	annotations, exists := deployment.Annotations[AnnotationKEY]
+	if !exists {
+		logger.Info("Deployment does not have annotation")
 		return false
 	}
-
+	if annotations == "migrated" {
+		logger.Info("Deployment is under migration")
+		return true
+	}
 	return r.HasUnMigratedVolumes(ctx, deployment)
 }
 
 func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployment *v1.Deployment) error {
-	if deployment.Annotations[AnnotationKEY] != "enabled" {
-		return nil
-	}
-
-	// Get fresh deployment to avoid conflicts
-	freshDeployment := &v1.Deployment{}
-	if err := r.Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, freshDeployment); err != nil {
-		return err
-	}
-
-	freshDeployment.Spec.Replicas = pointer.Int32(0) // Scale down the deployment
-
-	// Update the deployment with the new tolerations
-	currentTOLERATIONS := freshDeployment.Spec.Template.Spec.Tolerations
+	logger := log.FromContext(ctx)
+	logger.Info("Scaling down the deployment)")
+	deployment.Spec.Replicas = pointer.Int32(0)
+	logger.Info("Updating the tolerations to be added to the deployment")
+	currentTOLERATIONS := deployment.Spec.Template.Spec.Tolerations
 	data, err := ReadConfigMapData(ctx, r)
 	if err != nil {
 		return err
@@ -95,24 +89,16 @@ func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployme
 	for _, toleration := range tolerationOBJECTS {
 		currentTOLERATIONS = append(currentTOLERATIONS, toleration)
 	}
-	freshDeployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
-	freshDeployment.Annotations[AnnotationKEY] = "progress"
-	freshDeployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *freshDeployment.Spec.Replicas)
-
-	// Update the deployment
-	if err := r.Update(ctx, freshDeployment); err != nil {
-		return err
-	}
-
-	return nil
-
+	deployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
+	logger.Info("Updating the annotation to be in progress")
+	deployment.Annotations[AnnotationKEY] = "progress"
+	deployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
+	err = r.Update(ctx, deployment)
+	return err
 }
 
-func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Context, deployment *v1.Deployment) error {
+func (r *DeploymentController) UpdateVolumeAnnotations(ctx context.Context, deployment *v1.Deployment) error {
 	logger := log.FromContext(ctx)
-	if deployment.Annotations[AnnotationKEY] != "progress" {
-		return nil
-	}
 	storageClassNames, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
 	if err != nil {
 		return err
@@ -121,24 +107,27 @@ func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Cont
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 			pvcObjectKey := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}
-			logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)
-
 			var pvc corev1.PersistentVolumeClaim
 			if err := r.Get(ctx, pvcObjectKey, &pvc); err != nil {
 				return err
 			}
 			for _, scName := range strings.Split(storageClassNames, ",") {
 				if *pvc.Spec.StorageClassName == scName {
-					PVCAnnotationUpdater := NewPVCAnnotationUpdater(r, volume.PersistentVolumeClaim.ClaimName, deployment.Namespace)
-					if err := PVCAnnotationUpdater.EnableVolumeClaimAnnotation(ctx); err != nil {
-						return err
+					if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
+						logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)
+						PVCAnnotationUpdater := NewPVCAnnotationUpdater(r, volume.PersistentVolumeClaim.ClaimName, deployment.Namespace)
+						if err := PVCAnnotationUpdater.EnableVolumeClaimAnnotation(ctx); err != nil {
+							return err
+						}
+						break
 					}
-					break
 				}
 			}
 		}
 	}
-	return nil
+	deployment.Annotations[AnnotationKEY] = "migrated"
+	err = r.Update(ctx, deployment)
+	return err
 }
 
 func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deployment *v1.Deployment) error {
@@ -147,48 +136,40 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 		logger.Info("Volumes are still being migrated")
 		return fmt.Errorf("UNDER MIGRATION: volumes are still being migrated")
 	}
-	return nil
+	logger.Info("DONE: All volumes are migrated and updating the annotation to be enabled back")
+	deployment.Annotations[AnnotationKEY] = "enabled"
+	err := r.Update(ctx, deployment)
+	return err
 }
 
-func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
-	logger := log.FromContext(ctx)
-	deployment, err := r.GetDeployment(ctx, request.Name, request.Namespace)
+func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
+	var deployment *v1.Deployment
+	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
 	if err != nil {
-		return reconcile.Result{}, err
+		goto returnResult
 	}
 
 	if !r.ShouldTriggerDeployment(ctx, deployment) {
-		return reconcile.Result{}, nil
+		goto returnResult
 	}
 
-	// Scaledown the deployment and update the tolerations
-	if err := r.ScaleDownDeployment(ctx, deployment); err != nil {
-		return reconcile.Result{}, err
-	}
-	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// Loop through all the volumes and for each PVC Claim volume, add the annotation
-	if err := r.UpdateDeploymentVolumeAnnotation(ctx, deployment); err != nil {
-		return reconcile.Result{}, err
-	}
-	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
-	if err != nil {
-		return reconcile.Result{}, err
+	switch deployment.Annotations[AnnotationKEY] {
+	case "enabled":
+		err = r.ScaleDownDeployment(ctx, deployment)
+		goto returnResult
+	case "progress":
+		err = r.UpdateVolumeAnnotations(ctx, deployment)
+		goto returnResult
+	case "migrated":
+		err = r.WaitForVolumeMigration(ctx, deployment)
+		if err != nil {
+			result.RequeueAfter = 60 * time.Second
+		}
+		goto returnResult
 	}
 
-	if err := r.WaitForVolumeMigration(ctx, deployment); err != nil {
-		return reconcile.Result{RequeueAfter: 60 * time.Second}, nil
-	}
-	logger.Info("All volumes are migrated and updating the annotation to be enabled back")
-	deployment.Annotations[AnnotationKEY] = "enabled"
-	if err := r.Update(ctx, deployment); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	return reconcile.Result{}, nil
+returnResult:
+	return result, err
 }
 
 func (r *DeploymentController) SetupWithManager(mgr ctrl.Manager) error {
