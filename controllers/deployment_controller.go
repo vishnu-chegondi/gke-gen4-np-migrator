@@ -72,10 +72,17 @@ func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployme
 	if deployment.Annotations[AnnotationKEY] != "enabled" {
 		return nil
 	}
-	deployment.Spec.Replicas = pointer.Int32(0) // Scale down the deployment
+
+	// Get fresh deployment to avoid conflicts
+	freshDeployment := &v1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, freshDeployment); err != nil {
+		return err
+	}
+
+	freshDeployment.Spec.Replicas = pointer.Int32(0) // Scale down the deployment
 
 	// Update the deployment with the new tolerations
-	currentTOLERATIONS := deployment.Spec.Template.Spec.Tolerations
+	currentTOLERATIONS := freshDeployment.Spec.Template.Spec.Tolerations
 	data, err := ReadConfigMapData(ctx, r)
 	if err != nil {
 		return err
@@ -88,12 +95,12 @@ func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployme
 	for _, toleration := range tolerationOBJECTS {
 		currentTOLERATIONS = append(currentTOLERATIONS, toleration)
 	}
-	deployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
-	deployment.Annotations[AnnotationKEY] = "progress"
-	deployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
+	freshDeployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
+	freshDeployment.Annotations[AnnotationKEY] = "progress"
+	freshDeployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *freshDeployment.Spec.Replicas)
 
 	// Update the deployment
-	if err := r.Update(ctx, deployment); err != nil {
+	if err := r.Update(ctx, freshDeployment); err != nil {
 		return err
 	}
 
@@ -135,7 +142,9 @@ func (r *DeploymentController) UpdateDeploymentVolumeAnnotation(ctx context.Cont
 }
 
 func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deployment *v1.Deployment) error {
+	logger := log.FromContext(ctx)
 	if r.HasUnMigratedVolumes(ctx, deployment) {
+		logger.Info("Volumes are still being migrated")
 		return fmt.Errorf("UNDER MIGRATION: volumes are still being migrated")
 	}
 	return nil

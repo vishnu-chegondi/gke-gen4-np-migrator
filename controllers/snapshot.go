@@ -9,12 +9,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "enabled" {
 		return nil
 	}
+	logger := log.FromContext(ctx)
 	newSnapshotClass, err := ReadConfigMapKey(ctx, r, "VOLUME_SNAPHOT_CLASS")
 	if err != nil {
 		return err
@@ -50,6 +52,7 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 		return err
 	}
 
+	logger.Info("Snapshot created", "snapshot", snapshotObjectKey)
 	pvc.Annotations[AnnotationKEY] = "snapshot-in-progress"
 	err = r.Update(ctx, pvc)
 
@@ -60,21 +63,28 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "snapshot-in-progress" {
 		return nil
 	}
+	logger := log.FromContext(ctx)
 
-	var snapshot snapshotv1.VolumeSnapshot
 	snapshotObjectKey := types.NamespacedName{
 		Namespace: pvc.Namespace,
 		Name:      pvc.Name + "-snapshot",
 	}
 	for {
+		var snapshot snapshotv1.VolumeSnapshot
 		if err := r.Get(ctx, snapshotObjectKey, &snapshot); err != nil {
 			return err
 		}
-		if snapshot.Status != nil && snapshot.Status.ReadyToUse != nil && *snapshot.Status.ReadyToUse {
-			pvc.Annotations[AnnotationKEY] = "snapshot-completed"
-			err := r.Update(ctx, pvc)
+		if snapshot.Status != nil && snapshot.Status.ReadyToUse != nil && *snapshot.Status.ReadyToUse == true {
+			logger.Info("Snapshot completed", "snapshot", snapshotObjectKey)
+			freshPVC := v1.PersistentVolumeClaim{}
+			if err := r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &freshPVC); err != nil {
+				return err
+			}
+			freshPVC.Annotations[AnnotationKEY] = "snapshot-completed"
+			err := r.Update(ctx, &freshPVC)
 			return err
 		}
 		time.Sleep(10 * time.Second)
 	}
+
 }

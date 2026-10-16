@@ -24,6 +24,7 @@ var _ reconcile.Reconciler = &PVCController{}
 func (r *PVCController) InitializePVCController(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
 	logger := log.FromContext(ctx)
 	if enabled, exists := pvc.Annotations[AnnotationKEY]; !exists || enabled != "enabled" {
+		logger.Info("PVC does not have annotation", "pvc", pvc.Name)
 		return false
 	}
 	oldStorageClasses, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
@@ -33,11 +34,13 @@ func (r *PVCController) InitializePVCController(ctx context.Context, pvc *v1.Per
 	}
 
 	if pvc.Spec.StorageClassName == nil {
+		logger.Info("PVC does not have a storage class", "pvc", pvc.Name)
 		return false
 	}
 
 	for _, oldStorageClass := range strings.Split(oldStorageClasses, ",") {
 		if *pvc.Spec.StorageClassName == oldStorageClass {
+			logger.Info("PVC is in the old storage class", "pvc", pvc.Name)
 			return true
 		}
 	}
@@ -46,17 +49,20 @@ func (r *PVCController) InitializePVCController(ctx context.Context, pvc *v1.Per
 }
 
 func (r *PVCController) ReconcilePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+	logger := log.FromContext(ctx)
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "snapshot-completed" {
 		return nil
 	}
 
 	pvc.Name = pvc.Name + "-migrated"
 	pvc.Annotations[AnnotationKEY] = "renamed"
+	logger.Info("Renaming PVC", "pvc", pvc.Name)
 	err := r.Update(ctx, pvc)
 	return err
 }
 
 func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+	logger := log.FromContext(ctx)
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "renamed" {
 		return nil
 	}
@@ -99,6 +105,7 @@ func (r *PVCController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolu
 		Spec:       *newSpec,
 	}
 
+	logger.Info("Creating new PVC", "pvc", pvcName)
 	if err := r.Create(ctx, &newPVC); err != nil {
 		return err
 	}
