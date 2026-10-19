@@ -39,6 +39,9 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pvc.Name + "-snapshot",
 			Namespace: pvc.Namespace,
+			Annotations: map[string]string{
+				AnnotationKEY: "enabled",
+			},
 		},
 		Spec: snapshotv1.VolumeSnapshotSpec{
 			Source: snapshotv1.VolumeSnapshotSource{
@@ -55,7 +58,6 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 	logger.Info("Snapshot created", "snapshot", snapshotObjectKey)
 	pvc.Annotations[AnnotationKEY] = "snapshot-in-progress"
 	err = r.Update(ctx, pvc)
-
 	return err
 }
 
@@ -74,7 +76,7 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 		if err := r.Get(ctx, snapshotObjectKey, &snapshot); err != nil {
 			return err
 		}
-		if snapshot.Status != nil && snapshot.Status.ReadyToUse != nil && *snapshot.Status.ReadyToUse == true {
+		if SnapshotAvailable(&snapshot) {
 			logger.Info("Snapshot completed", "snapshot", snapshotObjectKey)
 			freshPVC := v1.PersistentVolumeClaim{}
 			if err := r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &freshPVC); err != nil {
@@ -84,7 +86,11 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 			err := r.Update(ctx, &freshPVC)
 			return err
 		}
-		time.Sleep(10 * time.Second)
+		time.Sleep(60 * time.Second)
 	}
 
+}
+
+func SnapshotAvailable(snapshot *snapshotv1.VolumeSnapshot) bool {
+	return snapshot.Status != nil && snapshot.Status.ReadyToUse != nil && *snapshot.Status.ReadyToUse == true
 }
