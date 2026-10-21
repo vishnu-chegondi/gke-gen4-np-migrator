@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
@@ -10,28 +11,38 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/yaml"
 )
 
-func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
-	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "enabled" {
-		return nil
-	}
+func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) (err error) {
 	logger := log.FromContext(ctx)
-	newSnapshotClass, err := ReadConfigMapKey(ctx, r, "VOLUME_SNAPHOT_CLASS")
+	var newSnapshotClass string
+	var snapshotObjectKey types.NamespacedName
+	var pvcYaml []byte
+	var snapshot snapshotv1.VolumeSnapshot
+
+	newSnapshotClass, err = ReadConfigMapKey(ctx, r, "VOLUME_SNAPHOT_CLASS")
 	if err != nil {
-		return err
+		goto returnError
 	}
 
-	snapshotObjectKey := types.NamespacedName{
+	snapshotObjectKey = types.NamespacedName{
 		Namespace: pvc.Namespace,
 		Name:      pvc.Name + "-snapshot",
 	}
 
-	if err := r.Get(ctx, snapshotObjectKey, &snapshotv1.VolumeSnapshot{}); err == nil {
-		return nil
+	err = r.Get(ctx, snapshotObjectKey, &snapshotv1.VolumeSnapshot{})
+	if err == nil {
+		err = fmt.Errorf("DUPLICATE: Snapshot Already Exists")
+		goto returnError
 	}
 
-	snapshot := snapshotv1.VolumeSnapshot{
+	pvcYaml, err = yaml.Marshal(pvc)
+	if err != nil {
+		goto returnError
+	}
+
+	snapshot = snapshotv1.VolumeSnapshot{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "VolumeSnapshot",
 			APIVersion: "snapshot.storage.k8s.io/v1",
@@ -40,7 +51,8 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 			Name:      pvc.Name + "-snapshot",
 			Namespace: pvc.Namespace,
 			Annotations: map[string]string{
-				AnnotationKEY: "enabled",
+				AnnotationKEY:    "enabled",
+				PVCAnnotationKey: string(pvcYaml),
 			},
 		},
 		Spec: snapshotv1.VolumeSnapshotSpec{
@@ -51,13 +63,17 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 		},
 	}
 
-	if err := r.Create(ctx, &snapshot); err != nil {
-		return err
+	err = r.Create(ctx, &snapshot)
+	if err != nil {
+		goto returnError
 	}
 
 	logger.Info("Snapshot created", "snapshot", snapshotObjectKey)
 	pvc.Annotations[AnnotationKEY] = "snapshot-in-progress"
 	err = r.Update(ctx, pvc)
+	goto returnError
+
+returnError:
 	return err
 }
 

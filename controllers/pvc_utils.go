@@ -2,13 +2,17 @@ package controllers
 
 import (
 	"context"
-	"strings"
+	"fmt"
 
+	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/yaml"
 )
+
+const PVCAnnotationKey = "gke.gen4.np.codeamenity.in/pvc"
 
 type PVCAnnotationUpdater struct {
 	r         *DeploymentController
@@ -44,33 +48,27 @@ func (u *PVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) 
 	return nil
 }
 
-// TODO: Update to use snapshot controller to create new PVC from snapshot instead of creating a new PVC directly
-func (r *SnapshotController) CreateNewPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot) error {
 	logger := log.FromContext(ctx)
-	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "renamed" {
-		return nil
-	}
+	var oldPVCObject v1.PersistentVolumeClaim
+	var newPVC v1.PersistentVolumeClaim
 	newStorageClass, err := ReadConfigMapKey(ctx, r, "STORAGE_CLASSNAME")
 	if err != nil {
 		return err
 	}
 
-	pvcName := strings.TrimSuffix(pvc.Name, "-migrated")
-	pvcNamespacedName := client.ObjectKey{
-		Namespace: pvc.Namespace,
-		Name:      pvcName,
+	// Check if PVC already exists
+	err = yaml.Unmarshal([]byte(snapshot.Annotations[PVCAnnotationKey]), oldPVCObject)
+	if err != nil {
+		return err
 	}
-	var newPVC v1.PersistentVolumeClaim
-
-	if err := r.Get(ctx, pvcNamespacedName, &newPVC); err == nil {
-		return nil
+	pvcNamespacedName := client.ObjectKey{Namespace: oldPVCObject.Namespace, Name: oldPVCObject.Name}
+	if err := r.Get(ctx, pvcNamespacedName, &v1.PersistentVolumeClaim{}); err == nil {
+		return fmt.Errorf("PVC %s already exists", oldPVCObject.Name)
 	}
 
-	newObjectMeta := new(pvc.ObjectMeta)
-	newObjectMeta.Name = pvcName
-
-	newSpec := new(pvc.Spec)
-	for _, accessMode := range pvc.Spec.AccessModes {
+	newSpec := oldPVCObject.Spec.DeepCopy()
+	for _, accessMode := range newPVC.Spec.AccessModes {
 		if accessMode == v1.ReadWriteMany {
 			newSpec.VolumeMode = new(v1.PersistentVolumeBlock)
 			break
@@ -80,21 +78,16 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, pvc *v1.Persisten
 	newSpec.DataSource = &v1.TypedLocalObjectReference{
 		APIGroup: pointer.String("snapshot.storage.k8s.io"),
 		Kind:     "VolumeSnapshot",
-		Name:     pvc.Name + "-snapshot",
+		Name:     snapshot.Name,
 	}
 
 	newPVC = v1.PersistentVolumeClaim{
-		TypeMeta:   pvc.TypeMeta,
-		ObjectMeta: *newObjectMeta,
+		TypeMeta:   oldPVCObject.TypeMeta,
+		ObjectMeta: oldPVCObject.ObjectMeta,
 		Spec:       *newSpec,
 	}
 
-	logger.Info("Creating new PVC", "pvc", pvcName)
-	if err := r.Create(ctx, &newPVC); err != nil {
-		return err
-	}
-
-	pvc.Annotations[AnnotationKEY] = "new-pvc-created"
-	err = r.Update(ctx, pvc)
+	logger.Info("Creating new PVC", "pvc", oldPVCObject.Name)
+	err = r.Create(ctx, &newPVC)
 	return err
 }

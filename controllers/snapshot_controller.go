@@ -53,12 +53,11 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 		annotationValue = "available"
 		goto returnResult
 	case "available":
-
+		err = r.CreateNewPVC(ctx, &snapshot)
 		annotationValue = "pvc-created"
 		goto returnResult
 	case "pvc-created":
-		annotationValue = "snapshot-completed"
-		goto returnResult
+		return result, err
 	}
 
 returnResult:
