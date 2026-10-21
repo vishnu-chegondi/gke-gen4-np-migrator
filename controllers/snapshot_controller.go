@@ -8,13 +8,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type SnapshotController struct {
 	client.Client
-	Scheme *runtime.Scheme
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
 }
 
 var _ reconcile.Reconciler = &SnapshotController{}
@@ -30,6 +32,9 @@ func (r *SnapshotController) ShouldTriggerSnapshot(ctx context.Context, snapshot
 }
 
 func (r *SnapshotController) UpdateAnnotation(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot, value string) error {
+	if value == "" {
+		return nil
+	}
 	snapshot.Annotations[AnnotationKEY] = value
 	return r.Update(ctx, snapshot)
 }
@@ -37,7 +42,7 @@ func (r *SnapshotController) UpdateAnnotation(ctx context.Context, snapshot *sna
 func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
 	var snapshot snapshotv1.VolumeSnapshot
 	var annotationValue string
-	if err := r.Get(ctx, request.NamespacedName, &snapshot); err != nil {
+	if err := r.APIReader.Get(ctx, request.NamespacedName, &snapshot); err != nil {
 		err = client.IgnoreNotFound(err)
 	}
 
@@ -68,5 +73,6 @@ returnResult:
 func (r *SnapshotController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&snapshotv1.VolumeSnapshot{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		Complete(r)
 }

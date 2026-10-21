@@ -27,7 +27,7 @@ func NewPVCAnnotationUpdater(r *DeploymentController, name, namespace string) *P
 func (u *PVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) error {
 	// Get the PVC object
 	var pvc v1.PersistentVolumeClaim
-	if err := u.r.Get(ctx, client.ObjectKey{Name: u.name, Namespace: u.namespace}, &pvc); err != nil {
+	if err := u.r.APIReader.Get(ctx, client.ObjectKey{Name: u.name, Namespace: u.namespace}, &pvc); err != nil {
 		return err
 	}
 
@@ -63,7 +63,7 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 		return err
 	}
 	pvcNamespacedName := client.ObjectKey{Namespace: oldPVCObject.Namespace, Name: oldPVCObject.Name}
-	if err := r.Get(ctx, pvcNamespacedName, &v1.PersistentVolumeClaim{}); err == nil {
+	if err := r.APIReader.Get(ctx, pvcNamespacedName, &v1.PersistentVolumeClaim{}); err == nil {
 		return fmt.Errorf("PVC %s already exists", oldPVCObject.Name)
 	}
 

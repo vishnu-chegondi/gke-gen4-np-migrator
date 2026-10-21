@@ -12,6 +12,7 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -21,14 +22,15 @@ var ReplicaAnnotationKey = "gke.gen4.np.codeamenity.in/replica"
 
 type DeploymentController struct {
 	client.Client
-	Scheme *runtime.Scheme
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
 }
 
 var _ reconcile.Reconciler = &DeploymentController{}
 
 func (r *DeploymentController) GetDeployment(ctx context.Context, name, namespace string) (*v1.Deployment, error) {
 	deployment := &v1.Deployment{}
-	err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, deployment)
+	err := r.APIReader.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, deployment)
 	return deployment, err
 }
 
@@ -42,7 +44,7 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 			var pvc corev1.PersistentVolumeClaim
-			if err := r.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
+			if err := r.APIReader.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
 				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
 				continue // Continue to check next volume
 			}
@@ -108,7 +110,7 @@ func (r *DeploymentController) UpdateVolumeAnnotations(ctx context.Context, depl
 		if volume.PersistentVolumeClaim != nil {
 			pvcObjectKey := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}
 			var pvc corev1.PersistentVolumeClaim
-			if err := r.Get(ctx, pvcObjectKey, &pvc); err != nil {
+			if err := r.APIReader.Get(ctx, pvcObjectKey, &pvc); err != nil {
 				return err
 			}
 			for _, scName := range strings.Split(storageClassNames, ",") {
@@ -152,6 +154,7 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	if !r.ShouldTriggerDeployment(ctx, deployment) {
+		err = nil
 		goto returnResult
 	}
 
@@ -184,5 +187,6 @@ returnResult:
 func (r *DeploymentController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Deployment{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		Complete(r)
 }

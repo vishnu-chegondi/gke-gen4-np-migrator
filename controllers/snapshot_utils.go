@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
@@ -31,9 +30,8 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 		Name:      pvc.Name + "-snapshot",
 	}
 
-	err = r.Get(ctx, snapshotObjectKey, &snapshotv1.VolumeSnapshot{})
+	err = r.APIReader.Get(ctx, snapshotObjectKey, &snapshotv1.VolumeSnapshot{})
 	if err == nil {
-		err = fmt.Errorf("DUPLICATE: Snapshot Already Exists")
 		goto returnError
 	}
 
@@ -64,16 +62,14 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 	}
 
 	err = r.Create(ctx, &snapshot)
-	if err != nil {
-		goto returnError
-	}
-
-	logger.Info("Snapshot created", "snapshot", snapshotObjectKey)
-	pvc.Annotations[AnnotationKEY] = "snapshot-in-progress"
-	err = r.Update(ctx, pvc)
 	goto returnError
 
 returnError:
+	if err != nil {
+		logger.Error(err, "Error creating snapshot")
+	} else {
+		logger.Info("Snapshot created", "snapshot", snapshotObjectKey)
+	}
 	return err
 }
 
@@ -87,21 +83,21 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 		Namespace: pvc.Namespace,
 		Name:      pvc.Name + "-snapshot",
 	}
+	logger.Info("Waiting for snapshot to complete", "snapshot", snapshotObjectKey)
 	for {
 		var snapshot snapshotv1.VolumeSnapshot
-		if err := r.Get(ctx, snapshotObjectKey, &snapshot); err != nil {
-			return err
-		}
+		_ = r.APIReader.Get(ctx, snapshotObjectKey, &snapshot)
 		if SnapshotAvailable(&snapshot) {
 			logger.Info("Snapshot completed", "snapshot", snapshotObjectKey)
 			freshPVC := v1.PersistentVolumeClaim{}
-			if err := r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &freshPVC); err != nil {
+			if err := r.APIReader.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &freshPVC); err != nil {
 				return err
 			}
 			freshPVC.Annotations[AnnotationKEY] = "snapshot-completed"
 			err := r.Update(ctx, &freshPVC)
 			return err
 		}
+		logger.Info("Snapshot not yet available", "snapshot", snapshotObjectKey)
 		time.Sleep(60 * time.Second)
 	}
 
