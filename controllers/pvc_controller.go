@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -70,6 +71,8 @@ func (r *PVCController) DeletePVC(ctx context.Context, pvc *v1.PersistentVolumeC
 }
 
 func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
+	logger := log.FromContext(ctx)
+	var message string
 	var pvc v1.PersistentVolumeClaim
 	if err := r.Get(ctx, request.NamespacedName, &pvc); err != nil {
 		err = client.IgnoreNotFound(err)
@@ -83,16 +86,23 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	switch pvc.Annotations[AnnotationKEY] {
 	case "enabled":
 		err = r.CreateSnapshotForPVC(ctx, &pvc)
+		message = "Snapshot created"
 		goto returnResult
 	case "snapshot-in-progress":
 		err = r.WaitForSnapshotCompletion(ctx, &pvc)
+		message = "Snapshot completed"
 		goto returnResult
 	case "snapshot-completed":
 		err = r.DeletePVC(ctx, &pvc)
+		message = "PVC deleted"
 		goto returnResult
 	}
 
 returnResult:
+	if err != nil {
+		message = fmt.Sprintf("Error reconciling PVC: %v", err)
+	}
+	logger.Info(message, "pvc", pvc.Name)
 	return result, err
 
 }

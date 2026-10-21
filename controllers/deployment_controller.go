@@ -144,6 +144,8 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 
 func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
 	var deployment *v1.Deployment
+	logger := log.FromContext(ctx)
+	var message string
 	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
 	if err != nil {
 		goto returnResult
@@ -155,20 +157,27 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 
 	switch deployment.Annotations[AnnotationKEY] {
 	case "enabled":
+		deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
 		err = r.ScaleDownDeployment(ctx, deployment)
+		message = "Deployment scaled down"
 		goto returnResult
 	case "progress":
 		err = r.UpdateVolumeAnnotations(ctx, deployment)
+		message = "Volume annotations updated"
 		goto returnResult
 	case "migrated":
 		err = r.WaitForVolumeMigration(ctx, deployment)
+		message = "Deployment reconciled"
 		if err != nil {
 			result.RequeueAfter = 60 * time.Second
+			err = nil
+			message = "Deployment reconciled after 1 minute"
 		}
 		goto returnResult
 	}
 
 returnResult:
+	logger.Info(message)
 	return result, err
 }
 

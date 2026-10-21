@@ -197,6 +197,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controllers.SnapshotController{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create snapshot controller", "controller", "Snapshot")
+	}
+
 	setupLog.Info("Successfully created controllers")
 
 	// +kubebuilder:scaffold:builder
