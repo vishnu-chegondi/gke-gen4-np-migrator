@@ -46,7 +46,7 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 			var pvc corev1.PersistentVolumeClaim
 			if err := r.APIReader.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
 				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
-				continue // Continue to check next volume
+				return true
 			}
 			for _, scName := range strings.Split(storageClassNames, ",") {
 				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != "enabled" {

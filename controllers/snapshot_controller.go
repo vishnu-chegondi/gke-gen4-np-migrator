@@ -40,6 +40,7 @@ func (r *SnapshotController) UpdateAnnotation(ctx context.Context, snapshot *sna
 }
 
 func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
+	logger := log.FromContext(ctx)
 	var snapshot snapshotv1.VolumeSnapshot
 	var annotationValue string
 	if err := r.APIReader.Get(ctx, request.NamespacedName, &snapshot); err != nil {
@@ -54,18 +55,28 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 	case "enabled":
 		for !SnapshotAvailable(&snapshot) {
 			time.Sleep(60 * time.Second)
+			if err := r.APIReader.Get(ctx, request.NamespacedName, &snapshot); err != nil {
+				err = client.IgnoreNotFound(err)
+			}
 		}
 		annotationValue = "available"
 		goto returnResult
 	case "available":
 		err = r.CreateNewPVC(ctx, &snapshot)
-		annotationValue = "pvc-created"
+		if err == nil {
+			annotationValue = "pvc-created"
+		}
 		goto returnResult
 	case "pvc-created":
 		return result, err
 	}
 
 returnResult:
+	if err != nil {
+		logger.Error(err, "Error reconciling snapshot")
+		err = nil
+		result = reconcile.Result{RequeueAfter: 60 * time.Second}
+	}
 	err = r.UpdateAnnotation(ctx, &snapshot, annotationValue)
 	return result, err
 }

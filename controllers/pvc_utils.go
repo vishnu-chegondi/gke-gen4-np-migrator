@@ -6,6 +6,7 @@ import (
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -58,7 +59,7 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	}
 
 	// Check if PVC already exists
-	err = yaml.Unmarshal([]byte(snapshot.Annotations[PVCAnnotationKey]), oldPVCObject)
+	err = yaml.Unmarshal([]byte(snapshot.Annotations[PVCAnnotationKey]), &oldPVCObject)
 	if err != nil {
 		return err
 	}
@@ -74,20 +75,29 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 			break
 		}
 	}
-	*newSpec.StorageClassName = newStorageClass
+	newSpec.StorageClassName = new(newStorageClass)
 	newSpec.DataSource = &v1.TypedLocalObjectReference{
 		APIGroup: pointer.String("snapshot.storage.k8s.io"),
 		Kind:     "VolumeSnapshot",
 		Name:     snapshot.Name,
 	}
+	newPVCObjectMetadata := oldPVCObject.ObjectMeta.DeepCopy()
+	newPVCObjectMetadata.ResourceVersion = ""
+	newPVCObjectMetadata.UID = ""
+	newPVC.ObjectMeta.CreationTimestamp = metav1.Time{}
+	newPVC.ObjectMeta.SelfLink = ""
+	newPVCObjectMetadata.Annotations[AnnotationKEY] = "enabled"
 
 	newPVC = v1.PersistentVolumeClaim{
 		TypeMeta:   oldPVCObject.TypeMeta,
-		ObjectMeta: oldPVCObject.ObjectMeta,
+		ObjectMeta: *newPVCObjectMetadata,
 		Spec:       *newSpec,
 	}
 
-	logger.Info("Creating new PVC", "pvc", oldPVCObject.Name)
+	logger.Info("Creating new PVC", "pvc", newPVC)
 	err = r.Create(ctx, &newPVC)
+	if err != nil {
+		panic(err)
+	}
 	return err
 }

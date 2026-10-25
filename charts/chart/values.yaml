@@ -19,7 +19,7 @@ manager:
     repository: vishnuchegondi/storage-pool-migrator
     ## Image tag (defaults to Chart.appVersion if not set)
     ##
-    tag: "dev1"
+    tag: "dev13"
     pullPolicy: Always
 
   ## Arguments

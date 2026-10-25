@@ -64,9 +64,6 @@ func (r *PVCController) ReconcilePVC(ctx context.Context, pvc *v1.PersistentVolu
 
 func (r *PVCController) DeletePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
 	logger := log.FromContext(ctx)
-	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "new-pvc-created" {
-		return nil
-	}
 	logger.Info("Deleting PVC", "pvc", pvc.Name)
 	err := r.Delete(ctx, pvc)
 	return err
@@ -100,6 +97,9 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 		goto returnResult
 	case "snapshot-completed":
 		err = r.DeletePVC(ctx, &pvc)
+		if client.IgnoreNotFound(err) != nil {
+			err = nil
+		}
 		message = "PVC deleted"
 		annotationValue = ""
 		goto returnResult
@@ -110,6 +110,11 @@ returnResult:
 		message = fmt.Sprintf("Error reconciling PVC: %v", err)
 	} else {
 		if annotationValue != "" {
+			logger.Info("Updating PVC annotation", "pvc", pvc.Name, "annotation", AnnotationKEY, "value", annotationValue)
+			if err := r.APIReader.Get(ctx, request.NamespacedName, &pvc); err != nil {
+				err = client.IgnoreNotFound(err)
+				return result, err
+			}
 			pvc.Annotations[AnnotationKEY] = annotationValue
 			err = r.Update(ctx, &pvc)
 		}
