@@ -21,16 +21,6 @@ type SnapshotController struct {
 
 var _ reconcile.Reconciler = &SnapshotController{}
 
-func (r *SnapshotController) ShouldTriggerSnapshot(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot) bool {
-	logger := log.FromContext(ctx)
-	if _, exits := snapshot.Annotations[AnnotationKEY]; !exits {
-		logger.Info("Snapshot does not have annotation")
-		return false
-	}
-	logger.Info("Snapshot is under migration")
-	return true
-}
-
 func (r *SnapshotController) UpdateAnnotation(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot, value string) error {
 	if value == "" {
 		return nil
@@ -45,10 +35,6 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 	var annotationValue string
 	if err := r.APIReader.Get(ctx, request.NamespacedName, &snapshot); err != nil {
 		err = client.IgnoreNotFound(err)
-	}
-
-	if !r.ShouldTriggerSnapshot(ctx, &snapshot) {
-		goto returnResult
 	}
 
 	switch snapshot.Annotations[AnnotationKEY] {
@@ -85,5 +71,6 @@ func (r *SnapshotController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&snapshotv1.VolumeSnapshot{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
+		WithEventFilter(SnapshotPredicate()).
 		Complete(r)
 }

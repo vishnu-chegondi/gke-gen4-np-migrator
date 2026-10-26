@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
@@ -49,13 +50,14 @@ func (u *PVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) 
 	return nil
 }
 
-func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot) error {
+func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot) (err error) {
 	logger := log.FromContext(ctx)
 	var oldPVCObject v1.PersistentVolumeClaim
 	var newPVC v1.PersistentVolumeClaim
-	newStorageClass, err := ReadConfigMapKey(ctx, r, "STORAGE_CLASSNAME")
-	if err != nil {
-		return err
+	newStorageClass := os.Getenv("STORAGE_CLASSNAME")
+	if newStorageClass == "" {
+		logger.Error(nil, "STORAGE_CLASSNAME environment variable is not set")
+		return fmt.Errorf("STORAGE_CLASSNAME environment variable is not set")
 	}
 
 	// Check if PVC already exists
@@ -97,7 +99,7 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	logger.Info("Creating new PVC", "pvc", newPVC)
 	err = r.Create(ctx, &newPVC)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	return err
+	return nil
 }

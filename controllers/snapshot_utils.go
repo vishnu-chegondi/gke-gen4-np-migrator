@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
@@ -20,9 +22,10 @@ func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.Persis
 	var pvcYaml []byte
 	var snapshot snapshotv1.VolumeSnapshot
 
-	newSnapshotClass, err = ReadConfigMapKey(ctx, r, "VOLUME_SNAPHOT_CLASS")
-	if err != nil {
-		goto returnError
+	newSnapshotClass = os.Getenv("VOLUME_SNAPHOT_CLASS")
+	if newSnapshotClass == "" {
+		logger.Error(nil, "VOLUME_SNAPHOT_CLASS environment variable is not set")
+		return fmt.Errorf("VOLUME_SNAPHOT_CLASS environment variable is not set")
 	}
 
 	snapshotObjectKey = types.NamespacedName{

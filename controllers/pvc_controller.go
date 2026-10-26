@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,33 +20,6 @@ type PVCController struct {
 }
 
 var _ reconcile.Reconciler = &PVCController{}
-
-func (r *PVCController) ShouldRunController(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
-	logger := log.FromContext(ctx)
-	if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
-		logger.Info("PVC does not have annotation", "pvc", pvc.Name)
-		return false
-	}
-	oldStorageClasses, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
-	if err != nil {
-		logger.Error(err, "Failed to read OLD_STORAGE_CLASSES from ConfigMap")
-		return false
-	}
-
-	if pvc.Spec.StorageClassName == nil {
-		logger.Info("PVC does not have a storage class", "pvc", pvc.Name)
-		return false
-	}
-
-	for _, oldStorageClass := range strings.Split(oldStorageClasses, ",") {
-		if *pvc.Spec.StorageClassName == oldStorageClass {
-			logger.Info("PVC is in the old storage class", "pvc", pvc.Name)
-			return true
-		}
-	}
-
-	return false
-}
 
 func (r *PVCController) ReconcilePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
 	logger := log.FromContext(ctx)
@@ -76,11 +48,6 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	var pvc v1.PersistentVolumeClaim
 	if err := r.APIReader.Get(ctx, request.NamespacedName, &pvc); err != nil {
 		err = client.IgnoreNotFound(err)
-		goto returnResult
-	}
-
-	if !r.ShouldRunController(ctx, &pvc) {
-		err = nil
 		goto returnResult
 	}
 
@@ -128,5 +95,6 @@ func (r *PVCController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.PersistentVolumeClaim{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
+		WithEventFilter(PVCPredicate()).
 		Complete(r)
 }

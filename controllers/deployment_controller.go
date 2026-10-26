@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,9 +38,9 @@ func (r *DeploymentController) GetDeployment(ctx context.Context, name, namespac
 
 func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deployment *v1.Deployment) bool {
 	logger := log.FromContext(ctx)
-	storageClassNames, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
-	if err != nil {
-		logger.Error(err, "Failed to read OLD_STORAGE_CLASSES from ConfigMap")
+	oldStorageClasses := os.Getenv("OLD_STORAGE_CLASSES")
+	if oldStorageClasses == "" {
+		logger.Error(nil, "OLD_STORAGE_CLASSES environment variable is not set")
 		return false
 	}
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
@@ -48,7 +50,7 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
 				return true
 			}
-			for _, scName := range strings.Split(storageClassNames, ",") {
+			for _, scName := range strings.Split(oldStorageClasses, ",") {
 				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != "enabled" {
 					logger.Info("PVC is in the old storage class", "pvc", volume.PersistentVolumeClaim.ClaimName)
 					return true
@@ -59,31 +61,19 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 	return false
 }
 
-func (r *DeploymentController) ShouldTriggerDeployment(ctx context.Context, deployment *v1.Deployment) bool {
-	logger := log.FromContext(ctx)
-	annotations, exists := deployment.Annotations[AnnotationKEY]
-	if !exists {
-		logger.Info("Deployment does not have annotation")
-		return false
-	}
-	if annotations == "migrated" {
-		logger.Info("Deployment is under migration")
-		return true
-	}
-	return r.HasUnMigratedVolumes(ctx, deployment)
-}
-
 func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployment *v1.Deployment) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Scaling down the deployment)")
 	deployment.Spec.Replicas = pointer.Int32(0)
+
 	logger.Info("Updating the tolerations to be added to the deployment")
 	currentTOLERATIONS := deployment.Spec.Template.Spec.Tolerations
-	data, err := ReadConfigMapData(ctx, r)
-	if err != nil {
-		return err
+	tolerationSTRING := os.Getenv("TOLERATIONS")
+	if tolerationSTRING == "" {
+		logger.Error(nil, "TOLERATIONS environment variable is not set")
+		return fmt.Errorf("TOLERATIONS environment variable is not set")
 	}
-	tolerationSTRING := data["TOLERATIONS"]
+
 	tolerationOBJECTS, err := GetTolerationObject(tolerationSTRING)
 	if err != nil {
 		return err
@@ -92,20 +82,37 @@ func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployme
 		currentTOLERATIONS = append(currentTOLERATIONS, toleration)
 	}
 	deployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
-	logger.Info("Updating the annotation to be in progress")
-	deployment.Annotations[AnnotationKEY] = "progress"
-	deployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
+
+	logger.Info("Updating the replicated annotation if replica count is greater than 0")
+	if *deployment.Spec.Replicas != 0 {
+		deployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
+	}
 	err = r.Update(ctx, deployment)
 	return err
 }
 
-func (r *DeploymentController) UpdateVolumeAnnotations(ctx context.Context, deployment *v1.Deployment) error {
+func (r *DeploymentController) ScaleUpDeployment(ctx context.Context, deployment *v1.Deployment) error {
 	logger := log.FromContext(ctx)
-	storageClassNames, err := ReadConfigMapKey(ctx, r, "OLD_STORAGE_CLASSES")
+	logger.Info("Scaling up the deployment")
+	oldReplica := deployment.Annotations[ReplicaAnnotationKey]
+	replicaCount, err := strconv.Atoi(oldReplica)
 	if err != nil {
+		logger.Error(err, "Error converting old replica count to integer")
 		return err
 	}
+	deployment.Spec.Replicas = pointer.Int32(int32(replicaCount))
+	return r.Update(ctx, deployment)
+}
 
+func (r *DeploymentController) UpdateVolumeAnnotations(ctx context.Context, deployment *v1.Deployment) error {
+	logger := log.FromContext(ctx)
+	storageClassNames := os.Getenv("OLD_STORAGE_CLASSES")
+	if storageClassNames == "" {
+		logger.Error(nil, "OLD_STORAGE_CLASSES environment variable is not set")
+		return fmt.Errorf("OLD_STORAGE_CLASSES environment variable is not set")
+	}
+
+	logger.Info("Updating the volume annotations")
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 			pvcObjectKey := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}
@@ -127,9 +134,7 @@ func (r *DeploymentController) UpdateVolumeAnnotations(ctx context.Context, depl
 			}
 		}
 	}
-	deployment.Annotations[AnnotationKEY] = "migrated"
-	err = r.Update(ctx, deployment)
-	return err
+	return nil
 }
 
 func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deployment *v1.Deployment) error {
@@ -139,48 +144,84 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 		return fmt.Errorf("UNDER MIGRATION: volumes are still being migrated")
 	}
 	logger.Info("DONE: All volumes are migrated and updating the annotation to be enabled back")
-	deployment.Annotations[AnnotationKEY] = "enabled"
-	err := r.Update(ctx, deployment)
-	return err
+	return nil
 }
 
 func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
 	var deployment *v1.Deployment
 	logger := log.FromContext(ctx)
 	var message string
+	var annotationValue string
 	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
 	if err != nil {
 		goto returnResult
 	}
 
-	if !r.ShouldTriggerDeployment(ctx, deployment) {
-		err = nil
+	if !r.HasUnMigratedVolumes(ctx, deployment) {
 		goto returnResult
 	}
 
 	switch deployment.Annotations[AnnotationKEY] {
 	case "enabled":
-		deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
 		err = r.ScaleDownDeployment(ctx, deployment)
+		if err != nil {
+			message = "Error scaling down the deployment"
+			result.RequeueAfter = 60 * time.Second
+			err = nil
+			goto returnResult
+		}
 		message = "Deployment scaled down"
+		annotationValue = "progress"
 		goto returnResult
 	case "progress":
 		err = r.UpdateVolumeAnnotations(ctx, deployment)
+		if err != nil {
+			message = "Error updating volume annotations"
+			result.RequeueAfter = 60 * time.Second
+			err = nil
+			goto returnResult
+		}
+		annotationValue = "migrated"
 		message = "Volume annotations updated"
 		goto returnResult
 	case "migrated":
 		err = r.WaitForVolumeMigration(ctx, deployment)
-		message = "Deployment reconciled"
 		if err != nil {
 			result.RequeueAfter = 60 * time.Second
 			err = nil
+			annotationValue = "migrated"
 			message = "Deployment reconciled after 1 minute"
+		} else {
+			message = "Deployment reconciled"
+			annotationValue = "pvc_available"
+		}
+		goto returnResult
+	case "pvc_available":
+		err = r.ScaleUpDeployment(ctx, deployment)
+		if err != nil {
+			message = "Error scaling up the deployment"
+			result.RequeueAfter = 60 * time.Second
+			err = nil
+		} else {
+			annotationValue = "enabled"
+			message = "Deployment scaled up"
 		}
 		goto returnResult
 	}
 
 returnResult:
 	logger.Info(message)
+	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
+	if err == nil {
+		if annotationValue != "" {
+			deployment.Annotations[AnnotationKEY] = annotationValue
+		}
+		err = r.Update(ctx, deployment)
+	}
+	if err != nil {
+		result.RequeueAfter = 60 * time.Second
+		err = nil
+	}
 	return result, err
 }
 
@@ -188,5 +229,6 @@ func (r *DeploymentController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Deployment{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
+		WithEventFilter(DeploymentPredicate()).
 		Complete(r)
 }
