@@ -4,8 +4,8 @@ kind: StorageClass
 metadata:
   name: {{ .Values.configs.STORAGE_CLASSNAME }}
 parameters:
-  provisioned-iops-on-create: "7000"
-  provisioned-throughput-on-create: 250Mi
+  provisioned-iops-on-create: "3000"
+  provisioned-throughput-on-create: "140Mi"
   type: hyperdisk-balanced
 provisioner: pd.csi.storage.gke.io
 volumeBindingMode: WaitForFirstConsumer

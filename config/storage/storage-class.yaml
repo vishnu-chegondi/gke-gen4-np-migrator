@@ -8,5 +8,5 @@ allowVolumeExpansion: true
 parameters:
   type: hyperdisk-balanced
   # Optional: Provision specific IOPS and Throughput at creation time
-  provisioned-iops-on-create: "7000"
-  provisioned-throughput-on-create: "250Mi"
+  provisioned-iops-on-create: "3000"
+  provisioned-throughput-on-create: "140Mi"

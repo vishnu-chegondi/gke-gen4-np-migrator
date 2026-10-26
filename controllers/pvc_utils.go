@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -83,12 +85,23 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 		Kind:     "VolumeSnapshot",
 		Name:     snapshot.Name,
 	}
+	newSpec.VolumeName = ""
+
+	if newSpec.Resources.Requests.Storage() == nil || newSpec.Resources.Requests.Storage().Cmp(resource.MustParse("10Gi")) < 0 {
+		newSpec.Resources.Requests[v1.ResourceStorage] = resource.MustParse("10Gi")
+	}
+
 	newPVCObjectMetadata := oldPVCObject.ObjectMeta.DeepCopy()
 	newPVCObjectMetadata.ResourceVersion = ""
 	newPVCObjectMetadata.UID = ""
 	newPVC.ObjectMeta.CreationTimestamp = metav1.Time{}
 	newPVC.ObjectMeta.SelfLink = ""
 	newPVCObjectMetadata.Annotations[AnnotationKEY] = "enabled"
+	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bind-completed")
+	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bound-by-controller")
+	delete(newPVCObjectMetadata.Annotations, "volume.beta.kubernetes.io/storage-provisioner")
+	delete(newPVCObjectMetadata.Annotations, "volume.kubernetes.io/selected-node")
+	delete(newPVCObjectMetadata.Annotations, "volume.kubernetes.io/storage-provisioner")
 
 	newPVC = v1.PersistentVolumeClaim{
 		TypeMeta:   oldPVCObject.TypeMeta,
@@ -102,4 +115,24 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 		return err
 	}
 	return nil
+}
+
+func waitForPVCDeletion(ctx context.Context, r client.Reader, name, namespace string) (err error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Waiting for PVC to be deleted", "pvc", name)
+	timeout := time.After(15 * time.Minute)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-timeout:
+			err = fmt.Errorf("timeout waiting for PVC deletion after 15 minutes: %s", name)
+			return err
+		case <-ticker.C:
+			err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, &v1.PersistentVolumeClaim{})
+			if client.IgnoreNotFound(err) == nil {
+				return nil
+			}
+		}
+	}
 }

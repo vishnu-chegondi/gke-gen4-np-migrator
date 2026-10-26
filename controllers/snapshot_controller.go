@@ -47,11 +47,13 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 		}
 		annotationValue = "available"
 		goto returnResult
-
 	case "available":
-		result.RequeueAfter = 30 * time.Second
-		goto returnResult
-	case "pvc-deleted":
+		err = waitForPVCDeletion(ctx, r.APIReader, *snapshot.Spec.Source.PersistentVolumeClaimName, snapshot.Namespace)
+		if err != nil {
+			result.RequeueAfter = 60 * time.Second
+			err = nil
+			goto returnResult
+		}
 		err = r.CreateNewPVC(ctx, &snapshot)
 		if err == nil {
 			annotationValue = "pvc-created"

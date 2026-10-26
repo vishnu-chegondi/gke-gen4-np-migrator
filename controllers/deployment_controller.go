@@ -158,7 +158,7 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		goto returnResult
 	}
 
-	if !r.HasUnMigratedVolumes(ctx, deployment) {
+	if !r.HasUnMigratedVolumes(ctx, deployment) && (deployment.Annotations[AnnotationKEY] != "migrated" && deployment.Annotations[AnnotationKEY] != "pvc-available") {
 		goto returnResult
 	}
 
@@ -194,10 +194,10 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 			message = "Deployment reconciled after 1 minute"
 		} else {
 			message = "Deployment reconciled"
-			annotationValue = "pvc_available"
+			annotationValue = "pvc-available"
 		}
 		goto returnResult
-	case "pvc_available":
+	case "pvc-available":
 		err = r.ScaleUpDeployment(ctx, deployment)
 		if err != nil {
 			message = "Error scaling up the deployment"
