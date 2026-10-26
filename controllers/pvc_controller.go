@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,7 +45,7 @@ func (r *PVCController) DeletePVC(ctx context.Context, pvc *v1.PersistentVolumeC
 
 	snapshotNamespace := pvc.Namespace
 	snapshotName := pvc.Name + "-snapshot"
-	var snapshot v1.PersistentVolumeClaim
+	var snapshot snapshotv1.VolumeSnapshot
 	err = r.APIReader.Get(ctx, client.ObjectKey{Name: snapshotName, Namespace: snapshotNamespace}, &snapshot)
 	if err != nil {
 		return err

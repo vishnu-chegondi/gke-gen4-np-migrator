@@ -63,7 +63,13 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 
 func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployment *v1.Deployment) error {
 	logger := log.FromContext(ctx)
-	logger.Info("Scaling down the deployment)")
+
+	logger.Info("Updating the replicated annotation if replica count is greater than 0")
+	if *deployment.Spec.Replicas != 0 {
+		deployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
+	}
+
+	logger.Info("Scaling down the deployment")
 	deployment.Spec.Replicas = pointer.Int32(0)
 
 	logger.Info("Updating the tolerations to be added to the deployment")
@@ -82,11 +88,6 @@ func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployme
 		currentTOLERATIONS = append(currentTOLERATIONS, toleration)
 	}
 	deployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
-
-	logger.Info("Updating the replicated annotation if replica count is greater than 0")
-	if *deployment.Spec.Replicas != 0 {
-		deployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
-	}
 	err = r.Update(ctx, deployment)
 	return err
 }
