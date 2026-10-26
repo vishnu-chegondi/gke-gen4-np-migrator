@@ -47,7 +47,11 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 		}
 		annotationValue = "available"
 		goto returnResult
+
 	case "available":
+		result.RequeueAfter = 30 * time.Second
+		goto returnResult
+	case "pvc-deleted":
 		err = r.CreateNewPVC(ctx, &snapshot)
 		if err == nil {
 			annotationValue = "pvc-created"

@@ -34,10 +34,25 @@ func (r *PVCController) ReconcilePVC(ctx context.Context, pvc *v1.PersistentVolu
 	return err
 }
 
-func (r *PVCController) DeletePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+func (r *PVCController) DeletePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) (err error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Deleting PVC", "pvc", pvc.Name)
-	err := r.Delete(ctx, pvc)
+	err = r.Delete(ctx, pvc)
+	if err != nil {
+		return err
+	}
+
+	snapshotNamespace := pvc.Namespace
+	snapshotName := pvc.Name + "-snapshot"
+	var snapshot v1.PersistentVolumeClaim
+	err = r.APIReader.Get(ctx, client.ObjectKey{Name: snapshotName, Namespace: snapshotNamespace}, &snapshot)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Updating annotation to associated snapshot", "snapshot", snapshotName)
+	snapshot.Annotations[AnnotationKEY] = "pvc-deleted"
+	err = r.Update(ctx, &snapshot)
 	return err
 }
 
