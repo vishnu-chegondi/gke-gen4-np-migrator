@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/api/apps/v1"
+	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
@@ -19,8 +19,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-var AnnotationKEY = "gke.gen4.np.codeamenity.in/migrate"
-var ReplicaAnnotationKey = "gke.gen4.np.codeamenity.in/replica"
+const (
+	AnnotationKEY        = "gke.gen4.np.codeamenity.in/migrate"
+	ReplicaAnnotationKey = "gke.gen4.np.codeamenity.in/replica"
+	DeploymentMigrated   = "migrated"
+	PVCAvailable         = "pvc-available"
+	DeploymentInProgress = "progress"
+)
 
 type DeploymentController struct {
 	client.Client
@@ -51,7 +56,7 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 				return true
 			}
 			for _, scName := range strings.Split(oldStorageClasses, ",") {
-				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != "enabled" {
+				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
 					logger.Info("PVC is in the old storage class", "pvc", volume.PersistentVolumeClaim.ClaimName)
 					return true
 				}
@@ -158,12 +163,12 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		goto returnResult
 	}
 
-	if !r.HasUnMigratedVolumes(ctx, deployment) && (deployment.Annotations[AnnotationKEY] != "migrated" && deployment.Annotations[AnnotationKEY] != "pvc-available") {
+	if !r.HasUnMigratedVolumes(ctx, deployment) && (deployment.Annotations[AnnotationKEY] != DeploymentMigrated && deployment.Annotations[AnnotationKEY] != PVCAvailable) {
 		goto returnResult
 	}
 
 	switch deployment.Annotations[AnnotationKEY] {
-	case "enabled":
+	case Enabled:
 		err = r.ScaleDownDeployment(ctx, deployment)
 		if err != nil {
 			message = "Error scaling down the deployment"
@@ -172,9 +177,9 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 			goto returnResult
 		}
 		message = "Deployment scaled down"
-		annotationValue = "progress"
+		annotationValue = DeploymentInProgress
 		goto returnResult
-	case "progress":
+	case DeploymentInProgress:
 		err = r.UpdateVolumeAnnotations(ctx, deployment)
 		if err != nil {
 			message = "Error updating volume annotations"
@@ -182,29 +187,29 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 			err = nil
 			goto returnResult
 		}
-		annotationValue = "migrated"
+		annotationValue = DeploymentMigrated
 		message = "Volume annotations updated"
 		goto returnResult
-	case "migrated":
+	case DeploymentMigrated:
 		err = r.WaitForVolumeMigration(ctx, deployment)
 		if err != nil {
 			result.RequeueAfter = 60 * time.Second
 			err = nil
-			annotationValue = "migrated"
+			annotationValue = DeploymentMigrated
 			message = "Deployment reconciled after 1 minute"
 		} else {
 			message = "Deployment reconciled"
-			annotationValue = "pvc-available"
+			annotationValue = PVCAvailable
 		}
 		goto returnResult
-	case "pvc-available":
+	case PVCAvailable:
 		err = r.ScaleUpDeployment(ctx, deployment)
 		if err != nil {
 			message = "Error scaling up the deployment"
 			result.RequeueAfter = 60 * time.Second
 			err = nil
 		} else {
-			annotationValue = "enabled"
+			annotationValue = Enabled
 			message = "Deployment scaled up"
 		}
 		goto returnResult

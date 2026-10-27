@@ -44,7 +44,7 @@ func (u *PVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) 
 		return nil
 	}
 
-	pvc.Annotations[AnnotationKEY] = "enabled"
+	pvc.Annotations[AnnotationKEY] = Enabled
 	if err := u.r.Update(ctx, &pvc); err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	newPVCObjectMetadata.UID = ""
 	newPVC.ObjectMeta.CreationTimestamp = metav1.Time{}
 	newPVC.ObjectMeta.SelfLink = ""
-	newPVCObjectMetadata.Annotations[AnnotationKEY] = "enabled"
+	newPVCObjectMetadata.Annotations[AnnotationKEY] = Enabled
 	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bind-completed")
 	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bound-by-controller")
 	delete(newPVCObjectMetadata.Annotations, "volume.beta.kubernetes.io/storage-provisioner")

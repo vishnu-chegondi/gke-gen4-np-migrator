@@ -21,6 +21,11 @@ type SnapshotController struct {
 
 var _ reconcile.Reconciler = &SnapshotController{}
 
+const (
+	Available  = "available"
+	PVCCreated = "pvc-created"
+)
+
 func (r *SnapshotController) UpdateAnnotation(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot, value string) error {
 	if value == "" {
 		return nil
@@ -38,16 +43,16 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 	}
 
 	switch snapshot.Annotations[AnnotationKEY] {
-	case "enabled":
+	case Enabled:
 		for !SnapshotAvailable(&snapshot) {
 			time.Sleep(60 * time.Second)
 			if err := r.APIReader.Get(ctx, request.NamespacedName, &snapshot); err != nil {
 				err = client.IgnoreNotFound(err)
 			}
 		}
-		annotationValue = "available"
+		annotationValue = Available
 		goto returnResult
-	case "available":
+	case Available:
 		err = waitForPVCDeletion(ctx, r.APIReader, *snapshot.Spec.Source.PersistentVolumeClaimName, snapshot.Namespace)
 		if err != nil {
 			result.RequeueAfter = 60 * time.Second
@@ -56,10 +61,10 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 		}
 		err = r.CreateNewPVC(ctx, &snapshot)
 		if err == nil {
-			annotationValue = "pvc-created"
+			annotationValue = PVCCreated
 		}
 		goto returnResult
-	case "pvc-created":
+	case PVCCreated:
 		return result, err
 	}
 

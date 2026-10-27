@@ -96,7 +96,7 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 			if err := r.APIReader.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &freshPVC); err != nil {
 				return err
 			}
-			freshPVC.Annotations[AnnotationKEY] = "snapshot-completed"
+			freshPVC.Annotations[AnnotationKEY] = SnapshotCompleted
 			err := r.Update(ctx, &freshPVC)
 			return err
 		}

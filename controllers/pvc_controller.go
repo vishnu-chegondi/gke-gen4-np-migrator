@@ -13,6 +13,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+const (
+	SnapshotCompleted  = "snapshot-completed"
+	Enabled            = "enabled"
+	SnapshotInProgress = "snapshot-in-progress"
+)
+
 type PVCController struct {
 	client.Client
 	APIReader client.Reader
@@ -23,7 +29,7 @@ var _ reconcile.Reconciler = &PVCController{}
 
 func (r *PVCController) ReconcilePVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
 	logger := log.FromContext(ctx)
-	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "snapshot-completed" {
+	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != SnapshotCompleted {
 		return nil
 	}
 
@@ -52,17 +58,17 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	}
 
 	switch pvc.Annotations[AnnotationKEY] {
-	case "enabled":
+	case Enabled:
 		err = r.CreateSnapshotForPVC(ctx, &pvc)
 		message = "Snapshot created"
-		annotationValue = "snapshot-in-progress"
+		annotationValue = SnapshotInProgress
 		goto returnResult
-	case "snapshot-in-progress":
+	case SnapshotInProgress:
 		err = r.WaitForSnapshotCompletion(ctx, &pvc)
 		message = "Snapshot completed"
-		annotationValue = "snapshot-completed"
+		annotationValue = SnapshotCompleted
 		goto returnResult
-	case "snapshot-completed":
+	case SnapshotCompleted:
 		err = r.DeletePVC(ctx, &pvc)
 		if client.IgnoreNotFound(err) != nil {
 			err = nil
