@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gke-np-migrator-config
+  namespace: system
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: gke-gen4-np-migrator
+    app.kubernetes.io/managed-by: kustomize
+data:
+  OLD_STORAGE_CLASSES: "standard,standard-rwo,standard-rwx"
+  STORAGE_CLASSNAME: "hyper-balanced-sc"
+  VOLUME_SNAPHOT_CLASS: "csi-gcs-snapshotter"
+  TOLERATIONS: |
+    - effect: PreferNoSchedule
+      key: default-n4d-node-pool
+      value: "true"
+      
