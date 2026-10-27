@@ -32,11 +32,7 @@ func hasRequiredConfigs(obj client.Object) bool {
 	}
 
 	storageClassSeq := strings.Split(oldStorageClasses, ",")
-	if slices.Contains(storageClassSeq, *pvc.Spec.StorageClassName) {
-		return true
-	}
-
-	return false
+	return slices.Contains(storageClassSeq, *pvc.Spec.StorageClassName)
 }
 
 func DeploymentPredicate() predicate.Predicate {

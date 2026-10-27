@@ -50,7 +50,8 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
 			var pvc corev1.PersistentVolumeClaim
-			if err := r.APIReader.Get(ctx, client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}, &pvc); err != nil {
+			pvcNamespacedName := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}
+			if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
 				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
 				return true
 			}
@@ -150,7 +151,10 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 	return nil
 }
 
-func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
+func (r *DeploymentController) Reconcile(
+	ctx context.Context,
+	request reconcile.Request,
+) (result reconcile.Result, err error) {
 	var deployment *v1.Deployment
 	logger := log.FromContext(ctx)
 	var message string
@@ -160,7 +164,9 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		goto returnResult
 	}
 
-	if !r.HasUnMigratedVolumes(ctx, deployment) && (deployment.Annotations[AnnotationKEY] != DeploymentMigrated && deployment.Annotations[AnnotationKEY] != PVCAvailable) {
+	if !r.HasUnMigratedVolumes(ctx, deployment) &&
+		(deployment.Annotations[AnnotationKEY] != DeploymentMigrated &&
+			deployment.Annotations[AnnotationKEY] != PVCAvailable) {
 		goto returnResult
 	}
 

@@ -26,7 +26,11 @@ const (
 	PVCCreated = "pvc-created"
 )
 
-func (r *SnapshotController) UpdateAnnotation(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot, value string) error {
+func (r *SnapshotController) UpdateAnnotation(
+	ctx context.Context,
+	snapshot *snapshotv1.VolumeSnapshot,
+	value string,
+) error {
 	if value == "" {
 		return nil
 	}
@@ -34,12 +38,14 @@ func (r *SnapshotController) UpdateAnnotation(ctx context.Context, snapshot *sna
 	return r.Update(ctx, snapshot)
 }
 
-func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
+func (r *SnapshotController) Reconcile(ctx context.Context,
+	request reconcile.Request,
+) (result reconcile.Result, err error) {
 	logger := log.FromContext(ctx)
 	var snapshot snapshotv1.VolumeSnapshot
 	var annotationValue string
 	if err := r.APIReader.Get(ctx, request.NamespacedName, &snapshot); err != nil {
-		err = client.IgnoreNotFound(err)
+		goto returnResult
 	}
 
 	switch snapshot.Annotations[AnnotationKEY] {
@@ -47,7 +53,7 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 		for !SnapshotAvailable(&snapshot) {
 			time.Sleep(60 * time.Second)
 			if err := r.APIReader.Get(ctx, request.NamespacedName, &snapshot); err != nil {
-				err = client.IgnoreNotFound(err)
+				goto returnResult
 			}
 		}
 		annotationValue = Available
@@ -56,7 +62,6 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 		err = waitForPVCDeletion(ctx, r.APIReader, *snapshot.Spec.Source.PersistentVolumeClaimName, snapshot.Namespace)
 		if err != nil {
 			result.RequeueAfter = 60 * time.Second
-			err = nil
 			goto returnResult
 		}
 		err = r.CreateNewPVC(ctx, &snapshot)
@@ -71,7 +76,6 @@ func (r *SnapshotController) Reconcile(ctx context.Context, request reconcile.Re
 returnResult:
 	if err != nil {
 		logger.Error(err, "Error reconciling snapshot")
-		err = nil
 		result = reconcile.Result{RequeueAfter: 60 * time.Second}
 	}
 	err = r.UpdateAnnotation(ctx, &snapshot, annotationValue)

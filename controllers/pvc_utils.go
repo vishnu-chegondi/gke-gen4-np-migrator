@@ -84,7 +84,8 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	}
 	newSpec.VolumeName = ""
 
-	if newSpec.Resources.Requests.Storage() == nil || newSpec.Resources.Requests.Storage().Cmp(resource.MustParse("10Gi")) < 0 {
+	if newSpec.Resources.Requests.Storage() == nil ||
+		newSpec.Resources.Requests.Storage().Cmp(resource.MustParse("10Gi")) < 0 {
 		newSpec.Resources.Requests[v1.ResourceStorage] = resource.MustParse("10Gi")
 	}
 
@@ -92,7 +93,6 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	newPVCObjectMetadata.ResourceVersion = ""
 	newPVCObjectMetadata.UID = ""
 	newPVCObjectMetadata.CreationTimestamp = metav1.Time{}
-	newPVCObjectMetadata.SelfLink = ""
 	newPVCObjectMetadata.Annotations[AnnotationKEY] = Enabled
 	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bind-completed")
 	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bound-by-controller")

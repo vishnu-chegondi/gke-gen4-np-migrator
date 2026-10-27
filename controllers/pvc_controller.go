@@ -53,7 +53,6 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	var annotationValue string
 	var pvc v1.PersistentVolumeClaim
 	if err := r.APIReader.Get(ctx, request.NamespacedName, &pvc); err != nil {
-		err = client.IgnoreNotFound(err)
 		goto returnResult
 	}
 

@@ -92,7 +92,8 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 		if SnapshotAvailable(&snapshot) {
 			logger.Info("Snapshot completed", "snapshot", snapshotObjectKey)
 			freshPVC := v1.PersistentVolumeClaim{}
-			if err := r.APIReader.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &freshPVC); err != nil {
+			pvcNamespacedName := types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}
+			if err := r.APIReader.Get(ctx, pvcNamespacedName, &freshPVC); err != nil {
 				return err
 			}
 			freshPVC.Annotations[AnnotationKEY] = SnapshotCompleted
