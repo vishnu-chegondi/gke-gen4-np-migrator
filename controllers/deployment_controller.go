@@ -11,7 +11,6 @@ import (
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -55,7 +54,7 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
 				return true
 			}
-			for _, scName := range strings.Split(oldStorageClasses, ",") {
+			for scName := range strings.SplitSeq(oldStorageClasses, ",") {
 				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
 					logger.Info("PVC is in the old storage class", "pvc", volume.PersistentVolumeClaim.ClaimName)
 					return true
@@ -75,7 +74,7 @@ func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployme
 	}
 
 	logger.Info("Scaling down the deployment")
-	deployment.Spec.Replicas = pointer.Int32(0)
+	deployment.Spec.Replicas = new(int32)
 
 	logger.Info("Updating the tolerations to be added to the deployment")
 	currentTOLERATIONS := deployment.Spec.Template.Spec.Tolerations
@@ -89,9 +88,7 @@ func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployme
 	if err != nil {
 		return err
 	}
-	for _, toleration := range tolerationOBJECTS {
-		currentTOLERATIONS = append(currentTOLERATIONS, toleration)
-	}
+	currentTOLERATIONS = append(currentTOLERATIONS, tolerationOBJECTS...)
 	deployment.Spec.Template.Spec.Tolerations = currentTOLERATIONS
 	err = r.Update(ctx, deployment)
 	return err
@@ -106,7 +103,7 @@ func (r *DeploymentController) ScaleUpDeployment(ctx context.Context, deployment
 		logger.Error(err, "Error converting old replica count to integer")
 		return err
 	}
-	deployment.Spec.Replicas = pointer.Int32(int32(replicaCount))
+	deployment.Spec.Replicas = new(int32(replicaCount))
 	return r.Update(ctx, deployment)
 }
 
@@ -126,7 +123,7 @@ func (r *DeploymentController) UpdateVolumeAnnotations(ctx context.Context, depl
 			if err := r.APIReader.Get(ctx, pvcObjectKey, &pvc); err != nil {
 				return err
 			}
-			for _, scName := range strings.Split(storageClassNames, ",") {
+			for scName := range strings.SplitSeq(storageClassNames, ",") {
 				if *pvc.Spec.StorageClassName == scName {
 					if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
 						logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)
@@ -173,7 +170,6 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		if err != nil {
 			message = "Error scaling down the deployment"
 			result.RequeueAfter = 60 * time.Second
-			err = nil
 			goto returnResult
 		}
 		message = "Deployment scaled down"
@@ -184,7 +180,6 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		if err != nil {
 			message = "Error updating volume annotations"
 			result.RequeueAfter = 60 * time.Second
-			err = nil
 			goto returnResult
 		}
 		annotationValue = DeploymentMigrated
@@ -194,7 +189,6 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		err = r.WaitForVolumeMigration(ctx, deployment)
 		if err != nil {
 			result.RequeueAfter = 60 * time.Second
-			err = nil
 			annotationValue = DeploymentMigrated
 			message = "Deployment reconciled after 1 minute"
 		} else {
@@ -207,7 +201,6 @@ func (r *DeploymentController) Reconcile(ctx context.Context, request reconcile.
 		if err != nil {
 			message = "Error scaling up the deployment"
 			result.RequeueAfter = 60 * time.Second
-			err = nil
 		} else {
 			annotationValue = Enabled
 			message = "Deployment scaled up"
@@ -226,7 +219,6 @@ returnResult:
 	}
 	if err != nil {
 		result.RequeueAfter = 60 * time.Second
-		err = nil
 	}
 	return result, err
 }

@@ -3,6 +3,7 @@ package controllers
 import (
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 
 	appv1 "k8s.io/api/apps/v1"
@@ -30,11 +31,11 @@ func hasRequiredConfigs(obj client.Object) bool {
 		return false
 	}
 
-	for _, oldStorageClass := range strings.Split(oldStorageClasses, ",") {
-		if *pvc.Spec.StorageClassName == oldStorageClass {
-			return true
-		}
+	storageClassSeq := strings.Split(oldStorageClasses, ",")
+	if slices.Contains(storageClassSeq, *pvc.Spec.StorageClassName) {
+		return true
 	}
+
 	return false
 }
 
@@ -78,19 +79,13 @@ func PVCPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			if _, ok := e.Object.GetAnnotations()[AnnotationKEY]; ok {
-				if hasRequiredConfigs(e.Object) {
-					return true
-				}
-				return false
+				return hasRequiredConfigs(e.Object)
 			}
 			return false
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			if e.ObjectOld.GetAnnotations()[AnnotationKEY] != e.ObjectNew.GetAnnotations()[AnnotationKEY] {
-				if hasRequiredConfigs(e.ObjectNew) {
-					return true
-				}
-				return false
+				return hasRequiredConfigs(e.ObjectNew)
 			}
 			return false
 		},
@@ -106,16 +101,11 @@ func PVCPredicate() predicate.Predicate {
 func SnapshotPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			if _, ok := e.Object.GetAnnotations()[AnnotationKEY]; ok {
-				return true
-			}
-			return false
+			_, ok := e.Object.GetAnnotations()[AnnotationKEY]
+			return ok
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			if e.ObjectOld.GetAnnotations()[AnnotationKEY] != e.ObjectNew.GetAnnotations()[AnnotationKEY] {
-				return true
-			}
-			return false
+			return e.ObjectOld.GetAnnotations()[AnnotationKEY] != e.ObjectNew.GetAnnotations()[AnnotationKEY]
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return false

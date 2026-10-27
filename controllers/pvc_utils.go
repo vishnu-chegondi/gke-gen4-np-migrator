@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
@@ -73,15 +73,12 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	}
 
 	newSpec := oldPVCObject.Spec.DeepCopy()
-	for _, accessMode := range newPVC.Spec.AccessModes {
-		if accessMode == v1.ReadWriteMany {
-			newSpec.VolumeMode = new(v1.PersistentVolumeBlock)
-			break
-		}
+	if slices.Contains(newPVC.Spec.AccessModes, v1.ReadWriteMany) {
+		newSpec.VolumeMode = new(v1.PersistentVolumeBlock)
 	}
 	newSpec.StorageClassName = new(newStorageClass)
 	newSpec.DataSource = &v1.TypedLocalObjectReference{
-		APIGroup: pointer.String("snapshot.storage.k8s.io"),
+		APIGroup: new("snapshot.storage.k8s.io"),
 		Kind:     "VolumeSnapshot",
 		Name:     snapshot.Name,
 	}
@@ -94,8 +91,8 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	newPVCObjectMetadata := oldPVCObject.ObjectMeta.DeepCopy()
 	newPVCObjectMetadata.ResourceVersion = ""
 	newPVCObjectMetadata.UID = ""
-	newPVC.ObjectMeta.CreationTimestamp = metav1.Time{}
-	newPVC.ObjectMeta.SelfLink = ""
+	newPVCObjectMetadata.CreationTimestamp = metav1.Time{}
+	newPVCObjectMetadata.SelfLink = ""
 	newPVCObjectMetadata.Annotations[AnnotationKEY] = Enabled
 	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bind-completed")
 	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bound-by-controller")
