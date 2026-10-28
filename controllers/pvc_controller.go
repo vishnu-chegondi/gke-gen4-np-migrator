@@ -145,7 +145,6 @@ returnResult:
 	}
 	logger.Info(message, "pvc", pvc.Name)
 	return result, err
-
 }
 
 // SetupWithManager configures the PVCController with the controller manager.

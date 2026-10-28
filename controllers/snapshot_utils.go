@@ -131,7 +131,6 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 		logger.Info("Snapshot not yet available", "snapshot", snapshotObjectKey)
 		time.Sleep(60 * time.Second)
 	}
-
 }
 
 // SnapshotAvailable checks if a VolumeSnapshot is ready to use.
