@@ -13,6 +13,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// SnapshotController reconciles VolumeSnapshot objects to automate the migration
+// of PersistentVolumeClaims from one storage class to another.
+// It monitors snapshot readiness, waits for PVC deletion, and creates new PVCs from snapshots.
 type SnapshotController struct {
 	client.Client
 	APIReader client.Reader
@@ -22,10 +25,15 @@ type SnapshotController struct {
 var _ reconcile.Reconciler = &SnapshotController{}
 
 const (
-	Available  = "available"
+	// Available indicates that a VolumeSnapshot is ready and bound.
+	Available = "available"
+	// PVCCreated indicates that a new PVC has been successfully created from the snapshot.
 	PVCCreated = "pvc-created"
 )
 
+// UpdateAnnotation updates the migration annotation on a VolumeSnapshot with the given value.
+// If the value is empty, no update is performed.
+// Returns an error if the update operation fails.
 func (r *SnapshotController) UpdateAnnotation(
 	ctx context.Context,
 	snapshot *snapshotv1.VolumeSnapshot,
@@ -38,6 +46,12 @@ func (r *SnapshotController) UpdateAnnotation(
 	return r.Update(ctx, snapshot)
 }
 
+// Reconcile implements the reconciliation loop for VolumeSnapshot resources.
+// It handles three annotation states: Enabled, Available, and PVCCreated.
+// - Enabled: waits for snapshot to become available
+// - Available: waits for original PVC deletion and creates new PVC from snapshot
+// - PVCCreated: reconciliation complete
+// Returns a Result indicating whether to requeue and any error encountered.
 func (r *SnapshotController) Reconcile(ctx context.Context,
 	request reconcile.Request,
 ) (result reconcile.Result, err error) {
@@ -82,6 +96,9 @@ returnResult:
 	return result, err
 }
 
+// SetupWithManager registers the SnapshotController with the controller manager.
+// It configures the controller to watch VolumeSnapshot resources with a maximum of 3
+// concurrent reconciliations and applies a custom event filter predicate.
 func (r *SnapshotController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&snapshotv1.VolumeSnapshot{}).

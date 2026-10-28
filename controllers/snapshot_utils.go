@@ -14,6 +14,20 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// CreateSnapshotForPVC creates a VolumeSnapshot from a PersistentVolumeClaim.
+// It requires the VOLUME_SNAPHOT_CLASS environment variable to be set.
+// The snapshot is created with the name "{pvc-name}-snapshot" in the same namespace as the PVC.
+// The original PVC metadata is stored in the snapshot's annotations for later restoration.
+// If a snapshot with the same name already exists, the function returns without error.
+//
+// Parameters:
+//   - ctx: The context for the operation
+//   - pvc: The PersistentVolumeClaim to create a snapshot from
+//
+// Returns an error if:
+//   - VOLUME_SNAPHOT_CLASS environment variable is not set
+//   - PVC metadata cannot be marshaled to YAML
+//   - Snapshot creation fails
 func (r *PVCController) CreateSnapshotForPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim) (err error) {
 	logger := log.FromContext(ctx)
 	var newSnapshotClass string
@@ -75,6 +89,20 @@ returnError:
 	return err
 }
 
+// WaitForSnapshotCompletion polls for the completion of a VolumeSnapshot associated with a PVC.
+// It only waits if the PVC has the migration annotation set to "snapshot-in-progress".
+// The function polls every 60 seconds until the snapshot's ReadyToUse status becomes true.
+// Once complete, it updates the PVC's annotation to SnapshotCompleted.
+//
+// Parameters:
+//   - ctx: The context for the operation
+//   - pvc: The PersistentVolumeClaim whose snapshot completion is being waited for
+//
+// Returns an error if:
+//   - Unable to get the fresh PVC object
+//   - Unable to update the PVC annotation after snapshot completion
+//
+// The function runs indefinitely until the snapshot is ready or an error occurs.
 func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "snapshot-in-progress" {
 		return nil
@@ -106,6 +134,16 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 
 }
 
+// SnapshotAvailable checks if a VolumeSnapshot is ready to use.
+// A snapshot is considered available when its Status is not nil,
+// ReadyToUse is not nil, and ReadyToUse is true.
+//
+// Parameters:
+//   - snapshot: The VolumeSnapshot to check
+//
+// Returns:
+//   - true if the snapshot is ready to use
+//   - false otherwise
 func SnapshotAvailable(snapshot *snapshotv1.VolumeSnapshot) bool {
 	return snapshot.Status != nil && snapshot.Status.ReadyToUse != nil && *snapshot.Status.ReadyToUse
 }

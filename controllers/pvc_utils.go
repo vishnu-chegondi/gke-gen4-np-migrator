@@ -1,3 +1,5 @@
+// Package controllers provides Kubernetes controller implementations for managing
+// PersistentVolumeClaims, Deployments, StatefulSets, and VolumeSnapshots.
 package controllers
 
 import (
@@ -16,18 +18,24 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// PVCAnnotationKey is the annotation key used to store PVC metadata in VolumeSnapshot objects.
 const PVCAnnotationKey = "gke.gen4.np.codeamenity.in/pvc"
 
+// PVCAnnotationUpdater manages annotations for PersistentVolumeClaims associated with Deployments.
 type PVCAnnotationUpdater struct {
 	r         *DeploymentController
 	name      string
 	namespace string
 }
 
+// NewPVCAnnotationUpdater creates a new PVCAnnotationUpdater for managing PVC annotations
+// in the context of a Deployment controller.
 func NewPVCAnnotationUpdater(r *DeploymentController, name, namespace string) *PVCAnnotationUpdater {
 	return &PVCAnnotationUpdater{r, name, namespace}
 }
 
+// EnableVolumeClaimAnnotation adds the migration annotation to a PersistentVolumeClaim
+// if it doesn't already exist. This marks the PVC as ready for migration.
 func (u *PVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) error {
 	// Get the PVC object
 	var pvc v1.PersistentVolumeClaim
@@ -52,16 +60,21 @@ func (u *PVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) 
 	return nil
 }
 
+// STSPVCAnnotationUpdater manages annotations for PersistentVolumeClaims associated with StatefulSets.
 type STSPVCAnnotationUpdater struct {
 	r         *StsController
 	name      string
 	namespace string
 }
 
+// NewSTSPVCAnnotationUpdater creates a new STSPVCAnnotationUpdater for managing PVC annotations
+// in the context of a StatefulSet controller.
 func NewSTSPVCAnnotationUpdater(r *StsController, name, namespace string) *STSPVCAnnotationUpdater {
 	return &STSPVCAnnotationUpdater{r, name, namespace}
 }
 
+// EnableVolumeClaimAnnotation adds the migration annotation to a PersistentVolumeClaim
+// if it doesn't already exist. This marks the PVC as ready for migration in a StatefulSet context.
 func (u *STSPVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) error {
 	// Get the PVC object
 	var pvc v1.PersistentVolumeClaim
@@ -86,6 +99,10 @@ func (u *STSPVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Contex
 	return nil
 }
 
+// CreateNewPVC creates a new PersistentVolumeClaim from a VolumeSnapshot.
+// It restores the PVC metadata from the snapshot annotation, updates the storage class,
+// sets the snapshot as the data source, and ensures minimum storage size of 10Gi.
+// The new PVC is created with the migration annotation enabled.
 func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot) (err error) {
 	logger := log.FromContext(ctx)
 	var oldPVCObject v1.PersistentVolumeClaim
@@ -148,6 +165,9 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	return nil
 }
 
+// waitForPVCDeletion polls for the deletion of a PersistentVolumeClaim with a 15-minute timeout.
+// It checks every 10 seconds if the PVC still exists and returns nil once it's deleted.
+// Returns an error if the timeout is reached before the PVC is deleted.
 func waitForPVCDeletion(ctx context.Context, r client.Reader, name, namespace string) (err error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Waiting for PVC to be deleted", "pvc", name)

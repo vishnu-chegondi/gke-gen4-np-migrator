@@ -16,6 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// StsController manages the migration of StatefulSets from old storage classes to new ones.
+// It orchestrates a multiphase migration process: scaling down, annotating volumes,
+// waiting for migration completion, and scaling back up.
 type StsController struct {
 	client.Client
 	APIReader client.Reader
@@ -24,12 +27,18 @@ type StsController struct {
 
 var _ reconcile.Reconciler = &StsController{}
 
+// GetStatefulSet retrieves a StatefulSet by name and namespace using the API reader.
+// Returns the StatefulSet object or an error if not found.
 func (r *StsController) GetStatefulSet(ctx context.Context, name, namespace string) (*v1.StatefulSet, error) {
 	sts := &v1.StatefulSet{}
 	err := r.APIReader.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, sts)
 	return sts, err
 }
 
+// HasUnMigratedVolumes checks if the StatefulSet has any volumes that still need migration.
+// It reads the OLD_STORAGE_CLASSES environment variable (comma-separated list) and checks
+// if any PVC uses an old storage class without the migration annotation enabled.
+// Returns true if any unmigrated volumes are found, false otherwise.
 func (r *StsController) HasUnMigratedVolumes(ctx context.Context, sts *v1.StatefulSet) bool {
 	logger := log.FromContext(ctx)
 	oldStorageClasses := os.Getenv("OLD_STORAGE_CLASSES")
@@ -54,9 +63,12 @@ func (r *StsController) HasUnMigratedVolumes(ctx context.Context, sts *v1.Statef
 	return false
 }
 
-// ScaleDownSTS scales down the StatefulSet to 0 replicas;
-// Updates the annotations of the StatefulSet
-// Updates the toleration of the StatefulSet
+// ScaleDownSTS scales down the StatefulSet to 0 replicas in preparation for migration.
+// It performs three operations:
+// 1. Saves the current replica count in the ReplicaAnnotationKey annotation
+// 2. Sets replicas to 0
+// 3. Adds tolerations from the TOLERATIONS environment variable to the pod template
+// Returns an error if the TOLERATIONS environment variable is not set or update fails.
 func (r *StsController) ScaleDownSTS(ctx context.Context, sts *v1.StatefulSet) error {
 	logger := log.FromContext(ctx)
 	if sts.Spec.Replicas != nil && *sts.Spec.Replicas > 0 {
@@ -84,6 +96,11 @@ func (r *StsController) ScaleDownSTS(ctx context.Context, sts *v1.StatefulSet) e
 	return err
 }
 
+// UpdateVolumeAnnotations adds migration annotations to PVCs that use old storage classes.
+// It iterates through all volumes in the StatefulSet template, identifies PVCs using
+// old storage classes (from OLD_STORAGE_CLASSES environment variable), and adds the
+// migration annotation if not already present.
+// Returns an error if OLD_STORAGE_CLASSES is not set or PVC update fails.
 func (r *StsController) UpdateVolumeAnnotations(ctx context.Context, sts *v1.StatefulSet) error {
 	logger := log.FromContext(ctx)
 	storageClassNames := os.Getenv("OLD_STORAGE_CLASSES")
@@ -117,6 +134,10 @@ func (r *StsController) UpdateVolumeAnnotations(ctx context.Context, sts *v1.Sta
 	return nil
 }
 
+// WaitForVolumeMigration checks if all volumes have completed migration.
+// Returns an error with the "UNDER MIGRATION" prefix if volumes are still being migrated,
+// which signals the reconciler to requeue the request.
+// Returns nil when all volumes have been successfully migrated.
 func (r *StsController) WaitForVolumeMigration(ctx context.Context, sts *v1.StatefulSet) error {
 	logger := log.FromContext(ctx)
 	if r.HasUnMigratedVolumes(ctx, sts) {
@@ -127,6 +148,10 @@ func (r *StsController) WaitForVolumeMigration(ctx context.Context, sts *v1.Stat
 	return nil
 }
 
+// ScaleUpSTS restores the StatefulSet to its original replica count after migration.
+// It reads the replica count from the ReplicaAnnotationKey annotation that was set
+// during the scale-down phase and updates the StatefulSet spec.
+// Returns an error if the annotation value is invalid or update fails.
 func (r *StsController) ScaleUpSTS(ctx context.Context, sts *v1.StatefulSet) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Scaling up the StatefulSet")
@@ -140,6 +165,16 @@ func (r *StsController) ScaleUpSTS(ctx context.Context, sts *v1.StatefulSet) err
 	return r.Update(ctx, sts)
 }
 
+// Reconcile implements the reconciliation loop for StatefulSet volume migration.
+// It uses a state machine driven by the AnnotationKEY annotation with these states:
+//
+// 1. Enabled: Scale down the StatefulSet to 0 replicas and add tolerations
+// 2. Progress: Add migration annotations to all PVCs using old storage classes
+// 3. MigrationInProgress: Poll every 60 seconds until all volumes are migrated
+// 4. Migrated: Scale the StatefulSet back to original replica count
+//
+// The reconciler automatically requeues after 60 seconds on errors or during migration.
+// State transitions are tracked by updating the AnnotationKEY annotation value.
 func (r *StsController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
 	logger := log.FromContext(ctx)
 	var message string
