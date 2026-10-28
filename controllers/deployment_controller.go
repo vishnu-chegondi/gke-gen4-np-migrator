@@ -21,9 +21,10 @@ import (
 const (
 	AnnotationKEY        = "gke.gen4.np.codeamenity.in/migrate"
 	ReplicaAnnotationKey = "gke.gen4.np.codeamenity.in/replica"
-	DeploymentMigrated   = "migrated"
-	PVCAvailable         = "pvc-available"
-	DeploymentInProgress = "progress"
+	Enabled              = "enabled"
+	MigrationInProgress  = "migration-in-progress"
+	Migrated             = "migrated"
+	Progress             = "progress"
 )
 
 type DeploymentController struct {
@@ -165,8 +166,8 @@ func (r *DeploymentController) Reconcile(
 	}
 
 	if !r.HasUnMigratedVolumes(ctx, deployment) &&
-		(deployment.Annotations[AnnotationKEY] != DeploymentMigrated &&
-			deployment.Annotations[AnnotationKEY] != PVCAvailable) {
+		(deployment.Annotations[AnnotationKEY] != Migrated &&
+			deployment.Annotations[AnnotationKEY] != MigrationInProgress) {
 		goto returnResult
 	}
 
@@ -179,30 +180,30 @@ func (r *DeploymentController) Reconcile(
 			goto returnResult
 		}
 		message = "Deployment scaled down"
-		annotationValue = DeploymentInProgress
+		annotationValue = Progress
 		goto returnResult
-	case DeploymentInProgress:
+	case Progress:
 		err = r.UpdateVolumeAnnotations(ctx, deployment)
 		if err != nil {
 			message = "Error updating volume annotations"
 			result.RequeueAfter = 60 * time.Second
 			goto returnResult
 		}
-		annotationValue = DeploymentMigrated
+		annotationValue = Migrated
 		message = "Volume annotations updated"
 		goto returnResult
-	case DeploymentMigrated:
+	case MigrationInProgress:
 		err = r.WaitForVolumeMigration(ctx, deployment)
 		if err != nil {
 			result.RequeueAfter = 60 * time.Second
-			annotationValue = DeploymentMigrated
+			annotationValue = MigrationInProgress
 			message = "Deployment reconciled after 1 minute"
 		} else {
 			message = "Deployment reconciled"
-			annotationValue = PVCAvailable
+			annotationValue = Migrated
 		}
 		goto returnResult
-	case PVCAvailable:
+	case Migrated:
 		err = r.ScaleUpDeployment(ctx, deployment)
 		if err != nil {
 			message = "Error scaling up the deployment"

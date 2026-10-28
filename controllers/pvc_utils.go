@@ -52,6 +52,40 @@ func (u *PVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) 
 	return nil
 }
 
+type STSPVCAnnotationUpdater struct {
+	r         *StsController
+	name      string
+	namespace string
+}
+
+func NewSTSPVCAnnotationUpdater(r *StsController, name, namespace string) *STSPVCAnnotationUpdater {
+	return &STSPVCAnnotationUpdater{r, name, namespace}
+}
+
+func (u *STSPVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) error {
+	// Get the PVC object
+	var pvc v1.PersistentVolumeClaim
+	if err := u.r.APIReader.Get(ctx, client.ObjectKey{Name: u.name, Namespace: u.namespace}, &pvc); err != nil {
+		return err
+	}
+
+	// Add the annotation to the PVC
+	if pvc.Annotations == nil {
+		pvc.Annotations = make(map[string]string)
+	}
+
+	if _, exists := pvc.Annotations[AnnotationKEY]; exists {
+		return nil
+	}
+
+	pvc.Annotations[AnnotationKEY] = Enabled
+	if err := u.r.Update(ctx, &pvc); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapshotv1.VolumeSnapshot) (err error) {
 	logger := log.FromContext(ctx)
 	var oldPVCObject v1.PersistentVolumeClaim

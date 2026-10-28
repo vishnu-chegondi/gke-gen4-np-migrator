@@ -1,0 +1,210 @@
+package controllers
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	v1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+)
+
+type StsController struct {
+	client.Client
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
+}
+
+var _ reconcile.Reconciler = &StsController{}
+
+func (r *StsController) GetStatefulSet(ctx context.Context, name, namespace string) (*v1.StatefulSet, error) {
+	sts := &v1.StatefulSet{}
+	err := r.APIReader.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, sts)
+	return sts, err
+}
+
+func (r *StsController) HasUnMigratedVolumes(ctx context.Context, sts *v1.StatefulSet) bool {
+	logger := log.FromContext(ctx)
+	oldStorageClasses := os.Getenv("OLD_STORAGE_CLASSES")
+	if oldStorageClasses == "" {
+		logger.Error(nil, "OLD_STORAGE_CLASSES environment variable is not set")
+		return false
+	}
+	for _, volume := range sts.Spec.VolumeClaimTemplates {
+		var pvc corev1.PersistentVolumeClaim
+		pvcNamespacedName := client.ObjectKey{Name: volume.Name, Namespace: sts.Namespace}
+		if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
+			logger.Info("PVC does not exist", "pvc", volume.Name)
+			return true
+		}
+		for scName := range strings.SplitSeq(oldStorageClasses, ",") {
+			if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
+				logger.Info("PVC is in the old storage class", "pvc", volume.Name)
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ScaleDownSTS scales down the StatefulSet to 0 replicas;
+// Updates the annotations of the StatefulSet
+// Updates the toleration of the StatefulSet
+func (r *StsController) ScaleDownSTS(ctx context.Context, sts *v1.StatefulSet) error {
+	logger := log.FromContext(ctx)
+	if sts.Spec.Replicas != nil && *sts.Spec.Replicas > 0 {
+		logger.Info("Updating the replicated annotation if replica count is greater than 0")
+		sts.Annotations[ReplicaAnnotationKey] = string(*sts.Spec.Replicas)
+	}
+
+	logger.Info("Scaling down the StatefulSet")
+	sts.Spec.Replicas = new(int32(0))
+
+	logger.Info("Updating the tolerations to be added to the stateful set")
+	currentTOLERATIONS := sts.Spec.Template.Spec.Tolerations
+	tolerationSTRING := os.Getenv("TOLERATIONS")
+	if tolerationSTRING == "" {
+		logger.Error(nil, "TOLERATIONS environment variable is not set")
+		return fmt.Errorf("TOLERATIONS environment variable is not set")
+	}
+	tolerationOBJECTS, err := GetTolerationObject(tolerationSTRING)
+	if err != nil {
+		return err
+	}
+	currentTOLERATIONS = append(currentTOLERATIONS, tolerationOBJECTS...)
+	sts.Spec.Template.Spec.Tolerations = currentTOLERATIONS
+	err = r.Update(ctx, sts)
+	return err
+}
+
+func (r *StsController) UpdateVolumeAnnotations(ctx context.Context, sts *v1.StatefulSet) error {
+	logger := log.FromContext(ctx)
+	storageClassNames := os.Getenv("OLD_STORAGE_CLASSES")
+	if storageClassNames == "" {
+		logger.Error(nil, "OLD_STORAGE_CLASSES environment variable is not set")
+		return fmt.Errorf("OLD_STORAGE_CLASSES environment variable is not set")
+	}
+	// Further logic to update volume annotations based on storageClassNames
+	logger.Info("Updating the volume annotations")
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.PersistentVolumeClaim != nil {
+			pvcObjectKey := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: sts.Namespace}
+			var pvc corev1.PersistentVolumeClaim
+			if err := r.APIReader.Get(ctx, pvcObjectKey, &pvc); err != nil {
+				return err
+			}
+			for scName := range strings.SplitSeq(storageClassNames, ",") {
+				if *pvc.Spec.StorageClassName == scName {
+					if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
+						logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)
+						PVCAnnotationUpdater := NewSTSPVCAnnotationUpdater(r, volume.PersistentVolumeClaim.ClaimName, sts.Namespace)
+						if err := PVCAnnotationUpdater.EnableVolumeClaimAnnotation(ctx); err != nil {
+							return err
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (r *StsController) WaitForVolumeMigration(ctx context.Context, sts *v1.StatefulSet) error {
+	logger := log.FromContext(ctx)
+	if r.HasUnMigratedVolumes(ctx, sts) {
+		logger.Info("Volumes are still being migrated")
+		return fmt.Errorf("UNDER MIGRATION: volumes are still being migrated")
+	}
+	logger.Info("DONE: All volumes are migrated and updating the annotation to be enabled back")
+	return nil
+}
+
+func (r *StsController) ScaleUpSTS(ctx context.Context, sts *v1.StatefulSet) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Scaling up the StatefulSet")
+	oldReplica := sts.Annotations[ReplicaAnnotationKey]
+	replicaCount, err := strconv.Atoi(oldReplica)
+	if err != nil {
+		logger.Error(err, "Error converting old replica count to integer")
+		return err
+	}
+	sts.Spec.Replicas = new(int32(replicaCount))
+	return r.Update(ctx, sts)
+}
+
+func (r *StsController) Reconcile(ctx context.Context, request reconcile.Request) (result reconcile.Result, err error) {
+	logger := log.FromContext(ctx)
+	var message string
+	var annotationValue string
+	var sts *v1.StatefulSet
+
+	sts, err = r.GetStatefulSet(ctx, request.Name, request.Namespace)
+	if err != nil {
+		goto ReturnResult
+	}
+
+	switch sts.Annotations[AnnotationKEY] {
+	case Enabled:
+		logger.Info("Scaling down the StatefulSet")
+		err = r.ScaleDownSTS(ctx, sts)
+		if err != nil {
+			message = "Error scaling down the StatefulSet"
+			goto ReturnResult
+		}
+		message = "Scaled down the StatefulSet"
+		annotationValue = Progress
+		goto ReturnResult
+	case Progress:
+		logger.Info("Updating annotations for volumes of the StatefulSet")
+		err = r.UpdateVolumeAnnotations(ctx, sts)
+		if err != nil {
+			message = "Error updating annotations for volumes of the StatefulSet"
+			goto ReturnResult
+		}
+		message = "Updated annotations for volumes of the StatefulSet"
+		annotationValue = MigrationInProgress
+		goto ReturnResult
+	case MigrationInProgress:
+		logger.Info("Waiting for the Volumes to be migrated")
+		err = r.WaitForVolumeMigration(ctx, sts)
+		if err != nil {
+			result.RequeueAfter = 60 * time.Second
+			annotationValue = MigrationInProgress
+			message = "StatefulSet reconciled after 1 minute"
+		} else {
+			message = "StatefulSet reconciled"
+			annotationValue = Migrated
+		}
+		goto ReturnResult
+	case Migrated:
+		logger.Info("Scaling up the StatefulSet")
+		err = r.ScaleUpSTS(ctx, sts)
+		if err != nil {
+			message = "Error scaling up the StatefulSet"
+			result.RequeueAfter = 60 * time.Second
+		} else {
+			annotationValue = Enabled
+			message = "StatefulSet scaled up"
+		}
+		goto ReturnResult
+	}
+
+ReturnResult:
+	logger.Info(message)
+	if err != nil {
+		result.RequeueAfter = 60 * time.Second
+	}
+	if annotationValue != "" {
+		sts.Annotations[AnnotationKEY] = annotationValue
+		err = r.Update(ctx, sts)
+	}
+	return result, err
+}

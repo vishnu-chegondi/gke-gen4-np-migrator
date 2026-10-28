@@ -15,7 +15,6 @@ import (
 
 const (
 	SnapshotCompleted  = "snapshot-completed"
-	Enabled            = "enabled"
 	SnapshotInProgress = "snapshot-in-progress"
 )
 
