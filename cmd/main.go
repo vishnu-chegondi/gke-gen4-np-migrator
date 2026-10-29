@@ -207,6 +207,15 @@ func main() {
 		setupLog.Error(err, "Failed to create snapshot controller", "controller", "Snapshot")
 	}
 
+	if err := (&controllers.StsController{
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create Stateful controller", "controller", "StatefulSet")
+		os.Exit(1)
+	}
+
 	setupLog.Info("Successfully created controllers")
 
 	// +kubebuilder:scaffold:builder

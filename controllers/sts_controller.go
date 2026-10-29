@@ -11,6 +11,7 @@ import (
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -263,4 +264,13 @@ ReturnResult:
 		err = r.Update(ctx, sts)
 	}
 	return result, err
+}
+
+// SetupWithManager registers the StatefulSet controller with the manager.
+// It watches StatefulSet resources and delegates reconciliation to r.
+func (r *StsController) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&v1.StatefulSet{}).
+		WithEventFilter(StsPredicate()).
+		Complete(r)
 }

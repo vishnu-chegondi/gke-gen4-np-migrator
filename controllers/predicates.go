@@ -147,3 +147,42 @@ func SnapshotPredicate() predicate.Predicate {
 		},
 	}
 }
+
+// StsPredicate returns a predicate that filters StatefulSet events for reconciliation.
+// It triggers reconciliation when a StatefulSet is created with the migration
+// annotation or when that annotation changes. Delete and Generic events are ignored.
+func StsPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			_, ok := e.Object.GetAnnotations()[AnnotationKEY]
+			return ok
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld.GetAnnotations()[AnnotationKEY] != e.ObjectNew.GetAnnotations()[AnnotationKEY] {
+				return true
+			}
+			oldSTS, okOld := e.ObjectOld.(*appv1.StatefulSet)
+			newSTS, okNew := e.ObjectNew.(*appv1.StatefulSet)
+
+			if !okOld || !okNew {
+				return false
+			}
+
+			if int(*oldSTS.Spec.Replicas) < int(*newSTS.Spec.Replicas) {
+				return true
+			}
+
+			oldVolumes := oldSTS.Spec.VolumeClaimTemplates
+			newVolumes := newSTS.Spec.VolumeClaimTemplates
+
+			// If the volumes have changed, return true to trigger the reconciling.
+			return !reflect.DeepEqual(oldVolumes, newVolumes)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return false
+		},
+	}
+}
