@@ -35,6 +35,22 @@ func (r *StsController) GetStatefulSet(ctx context.Context, name, namespace stri
 	return sts, err
 }
 
+// GetSTSReplicaCount returns the StatefulSet's replica count.
+// It uses the replica specification when set, otherwise falls back to the
+// ReplicaAnnotationKey annotation, and returns 0 if neither provides a valid count.
+func GetSTSReplicaCount(sts *v1.StatefulSet) int32 {
+	if sts.Spec.Replicas != nil && *sts.Spec.Replicas > 0 {
+		return *sts.Spec.Replicas
+	}
+
+	if val, ok := sts.Annotations[ReplicaAnnotationKey]; ok {
+		if intVal, err := strconv.Atoi(val); err == nil {
+			return int32(intVal)
+		}
+	}
+	return 0
+}
+
 // HasUnMigratedVolumes checks if the StatefulSet has any volumes that still need migration.
 // It reads the OLD_STORAGE_CLASSES environment variable (comma-separated list) and checks
 // if any PVC uses an old storage class without the migration annotation enabled.
@@ -47,16 +63,21 @@ func (r *StsController) HasUnMigratedVolumes(ctx context.Context, sts *v1.Statef
 		return false
 	}
 	for _, volume := range sts.Spec.VolumeClaimTemplates {
-		var pvc corev1.PersistentVolumeClaim
-		pvcNamespacedName := client.ObjectKey{Name: volume.Name, Namespace: sts.Namespace}
-		if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
-			logger.Info("PVC does not exist", "pvc", volume.Name)
-			return true
-		}
-		for scName := range strings.SplitSeq(oldStorageClasses, ",") {
-			if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
-				logger.Info("PVC is in the old storage class", "pvc", volume.Name)
+		for replicaCount := int32(0); replicaCount < GetSTSReplicaCount(sts); replicaCount++ {
+			var pvc corev1.PersistentVolumeClaim
+			var volumeName string
+
+			volumeName = fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, replicaCount)
+			pvcNamespacedName := client.ObjectKey{Name: volumeName, Namespace: sts.Namespace}
+			if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
+				logger.Info("PVC does not exist", "pvc", volumeName)
 				return true
+			}
+			for scName := range strings.SplitSeq(oldStorageClasses, ",") {
+				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
+					logger.Info("PVC is in the old storage class", "pvc", volumeName)
+					return true
+				}
 			}
 		}
 	}
