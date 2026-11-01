@@ -64,11 +64,13 @@ func (r *StsController) HasUnMigratedVolumes(ctx context.Context, sts *v1.Statef
 		return false
 	}
 	for _, volume := range sts.Spec.VolumeClaimTemplates {
-		for replicaCount := int32(0); replicaCount < GetSTSReplicaCount(sts); replicaCount++ {
+		replicaCount := GetSTSReplicaCount(sts)
+		for i := int32(0); i < replicaCount; i++ {
 			var pvc corev1.PersistentVolumeClaim
 			var volumeName string
 
-			volumeName = fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, replicaCount)
+			volumeName = fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, i)
+			logger.Info("Checking PVC for migration", "pvc", volumeName)
 			pvcNamespacedName := client.ObjectKey{Name: volumeName, Namespace: sts.Namespace}
 			if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
 				logger.Info("PVC does not exist", "pvc", volumeName)
@@ -95,7 +97,7 @@ func (r *StsController) ScaleDownSTS(ctx context.Context, sts *v1.StatefulSet) e
 	logger := log.FromContext(ctx)
 	if sts.Spec.Replicas != nil && *sts.Spec.Replicas > 0 {
 		logger.Info("Updating the replicated annotation if replica count is greater than 0")
-		sts.Annotations[ReplicaAnnotationKey] = string(*sts.Spec.Replicas)
+		sts.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *sts.Spec.Replicas)
 	}
 
 	logger.Info("Scaling down the StatefulSet")
@@ -132,10 +134,14 @@ func (r *StsController) UpdateVolumeAnnotations(ctx context.Context, sts *v1.Sta
 	}
 	// Further logic to update volume annotations based on storageClassNames
 	logger.Info("Updating the volume annotations")
-	for _, volume := range sts.Spec.Template.Spec.Volumes {
-		if volume.PersistentVolumeClaim != nil {
-			pvcObjectKey := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: sts.Namespace}
+	for _, volume := range sts.Spec.VolumeClaimTemplates {
+		replicaCount := GetSTSReplicaCount(sts)
+		for i := int32(0); i < replicaCount; i++ {
 			var pvc corev1.PersistentVolumeClaim
+			var volumeName string
+
+			volumeName = fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, i)
+			pvcObjectKey := client.ObjectKey{Name: volumeName, Namespace: sts.Namespace}
 			if err := r.APIReader.Get(ctx, pvcObjectKey, &pvc); err != nil {
 				return err
 			}
@@ -143,7 +149,7 @@ func (r *StsController) UpdateVolumeAnnotations(ctx context.Context, sts *v1.Sta
 				if *pvc.Spec.StorageClassName == scName {
 					if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
 						logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)
-						PVCAnnotationUpdater := NewSTSPVCAnnotationUpdater(r, volume.PersistentVolumeClaim.ClaimName, sts.Namespace)
+						PVCAnnotationUpdater := NewSTSPVCAnnotationUpdater(r, volumeName, sts.Namespace)
 						if err := PVCAnnotationUpdater.EnableVolumeClaimAnnotation(ctx); err != nil {
 							return err
 						}
@@ -205,6 +211,12 @@ func (r *StsController) Reconcile(ctx context.Context, request reconcile.Request
 
 	sts, err = r.GetStatefulSet(ctx, request.Name, request.Namespace)
 	if err != nil {
+		goto ReturnResult
+	}
+
+	if !r.HasUnMigratedVolumes(ctx, sts) &&
+		(sts.Annotations[AnnotationKEY] != Migrated &&
+			sts.Annotations[AnnotationKEY] != MigrationInProgress) {
 		goto ReturnResult
 	}
 

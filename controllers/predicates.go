@@ -154,8 +154,10 @@ func SnapshotPredicate() predicate.Predicate {
 func StsPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			_, ok := e.Object.GetAnnotations()[AnnotationKEY]
-			return ok
+			if _, ok := e.Object.GetAnnotations()[AnnotationKEY]; ok {
+				return true
+			}
+			return false
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			if e.ObjectOld.GetAnnotations()[AnnotationKEY] != e.ObjectNew.GetAnnotations()[AnnotationKEY] {

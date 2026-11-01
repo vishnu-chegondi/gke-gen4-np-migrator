@@ -20,6 +20,17 @@ On November 2025, Google Cloud announced the availability of Gen4 Node Pools. Th
 
 ## Installation
 
-> TODO: Update the installation instructions.
+Install the operator with Helm:
 
+```bash
+helm install gke-gen4-np-migrator oci://ghcr.io/vishnuchegondi/charts/gke-gen4-np-migrator \
+  --namespace gke-gen4-np-migrator-system \
+  --create-namespace
+```
+
+To install a specific chart version, append `--version <version>` to the command. Verify that the operator is running with:
+
+```bash
+kubectl get pods -n gke-gen4-np-migrator-system
+```
 
