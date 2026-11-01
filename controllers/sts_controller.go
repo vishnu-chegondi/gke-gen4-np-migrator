@@ -65,11 +65,10 @@ func (r *StsController) HasUnMigratedVolumes(ctx context.Context, sts *v1.Statef
 	}
 	for _, volume := range sts.Spec.VolumeClaimTemplates {
 		replicaCount := GetSTSReplicaCount(sts)
-		for i := int32(0); i < replicaCount; i++ {
+		for i := range replicaCount {
 			var pvc corev1.PersistentVolumeClaim
-			var volumeName string
 
-			volumeName = fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, i)
+			volumeName := fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, i)
 			logger.Info("Checking PVC for migration", "pvc", volumeName)
 			pvcNamespacedName := client.ObjectKey{Name: volumeName, Namespace: sts.Namespace}
 			if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
@@ -136,11 +135,10 @@ func (r *StsController) UpdateVolumeAnnotations(ctx context.Context, sts *v1.Sta
 	logger.Info("Updating the volume annotations")
 	for _, volume := range sts.Spec.VolumeClaimTemplates {
 		replicaCount := GetSTSReplicaCount(sts)
-		for i := int32(0); i < replicaCount; i++ {
+		for i := range replicaCount {
 			var pvc corev1.PersistentVolumeClaim
-			var volumeName string
 
-			volumeName = fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, i)
+			volumeName := fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, i)
 			pvcObjectKey := client.ObjectKey{Name: volumeName, Namespace: sts.Namespace}
 			if err := r.APIReader.Get(ctx, pvcObjectKey, &pvc); err != nil {
 				return err
