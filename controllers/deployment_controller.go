@@ -121,6 +121,7 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 // Returns:
 //   - error: An error if the TOLERATIONS environment variable is not set, toleration parsing fails,
 //     or the deployment update fails
+
 func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployment *v1.Deployment) error {
 	logger := log.FromContext(ctx)
 
@@ -249,6 +250,9 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 	logger.Info("DONE: All volumes are migrated and updating the annotation to be enabled back")
 	return nil
 }
+
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=,resources=configmaps,verbs=get;list;watch
 
 // Reconcile implements the main reconciliation loop for the DeploymentController.
 // It manages the complete lifecycle of storage class migration for deployment volumes through

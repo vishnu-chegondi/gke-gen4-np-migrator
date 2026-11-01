@@ -191,6 +191,8 @@ func (r *StsController) ScaleUpSTS(ctx context.Context, sts *v1.StatefulSet) err
 	return r.Update(ctx, sts)
 }
 
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+
 // Reconcile implements the reconciliation loop for StatefulSet volume migration.
 // It uses a state machine driven by the AnnotationKEY annotation with these states:
 //
