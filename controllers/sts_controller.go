@@ -66,20 +66,11 @@ func (r *StsController) HasUnMigratedVolumes(ctx context.Context, sts *v1.Statef
 	for _, volume := range sts.Spec.VolumeClaimTemplates {
 		replicaCount := GetSTSReplicaCount(sts)
 		for i := range replicaCount {
-			var pvc corev1.PersistentVolumeClaim
-
 			volumeName := fmt.Sprintf("%s-%s-%d", volume.Name, sts.Name, i)
 			logger.Info("Checking PVC for migration", "pvc", volumeName)
 			pvcNamespacedName := client.ObjectKey{Name: volumeName, Namespace: sts.Namespace}
-			if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
-				logger.Info("PVC does not exist", "pvc", volumeName)
+			if IsPVCINOLDStorageClass(ctx, r.APIReader, pvcNamespacedName) {
 				return true
-			}
-			for scName := range strings.SplitSeq(oldStorageClasses, ",") {
-				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
-					logger.Info("PVC is in the old storage class", "pvc", volumeName)
-					return true
-				}
 			}
 		}
 	}

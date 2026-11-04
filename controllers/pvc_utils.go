@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
@@ -97,6 +98,32 @@ func (u *STSPVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Contex
 	}
 
 	return nil
+}
+
+// IsPVCINOLDStorageClass reports whether the named PVC should be treated as
+// belonging to an old storage class. It checks the comma-separated
+// OLD_STORAGE_CLASSES environment variable and ignores PVCs already marked as
+// migration-enabled. It returns false if the variable is unset, and true if the
+// PVC cannot be found.
+func IsPVCINOLDStorageClass(ctx context.Context, apiReader client.Reader, pvcNamespacedName client.ObjectKey) bool {
+	logger := log.FromContext(ctx)
+	oldStorageClasses := os.Getenv("OLD_STORAGE_CLASSES")
+	if oldStorageClasses == "" {
+		logger.Error(nil, "OLD_STORAGE_CLASSES environment variable is not set")
+		return false
+	}
+	var pvc v1.PersistentVolumeClaim
+	if err := apiReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
+		logger.Info("PVC does not exist", "pvc", pvcNamespacedName.Name)
+		return true
+	}
+	for _, scName := range strings.Split(oldStorageClasses, ",") {
+		if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
+			logger.Info("PVC is in the old storage class", "pvc", pvcNamespacedName.Name)
+			return true
+		}
+	}
+	return false
 }
 
 // CreateNewPVC creates a new PersistentVolumeClaim from a VolumeSnapshot.

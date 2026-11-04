@@ -87,17 +87,9 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 	}
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
-			var pvc corev1.PersistentVolumeClaim
 			pvcNamespacedName := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}
-			if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
-				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
+			if IsPVCINOLDStorageClass(ctx, r.APIReader, pvcNamespacedName) {
 				return true
-			}
-			for scName := range strings.SplitSeq(oldStorageClasses, ",") {
-				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
-					logger.Info("PVC is in the old storage class", "pvc", volume.PersistentVolumeClaim.ClaimName)
-					return true
-				}
 			}
 		}
 	}
