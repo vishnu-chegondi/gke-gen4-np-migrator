@@ -46,6 +46,8 @@ func (r *SnapshotController) UpdateAnnotation(
 	return r.Update(ctx, snapshot)
 }
 
+// +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch;create;update;patch;delete
+
 // Reconcile implements the reconciliation loop for VolumeSnapshot resources.
 // It handles three annotation states: Enabled, Available, and PVCCreated.
 // - Enabled: waits for snapshot to become available

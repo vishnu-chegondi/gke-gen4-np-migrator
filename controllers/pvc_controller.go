@@ -83,6 +83,8 @@ func (r *PVCController) DeletePVC(ctx context.Context, pvc *v1.PersistentVolumeC
 	return err
 }
 
+// +kubebuilder:rbac:groups=v1,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+
 // Reconcile manages the PVC migration lifecycle through a state machine based on annotation values.
 // It handles three main states:
 //   - Enabled: Creates a VolumeSnapshot from the PVC and transitions to SnapshotInProgress

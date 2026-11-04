@@ -87,17 +87,9 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 	}
 	for _, volume := range deployment.Spec.Template.Spec.Volumes {
 		if volume.PersistentVolumeClaim != nil {
-			var pvc corev1.PersistentVolumeClaim
 			pvcNamespacedName := client.ObjectKey{Name: volume.PersistentVolumeClaim.ClaimName, Namespace: deployment.Namespace}
-			if err := r.APIReader.Get(ctx, pvcNamespacedName, &pvc); err != nil {
-				logger.Info("PVC does not exist", "pvc", volume.PersistentVolumeClaim.ClaimName)
+			if IsPVCINOLDStorageClass(ctx, r.APIReader, pvcNamespacedName) {
 				return true
-			}
-			for scName := range strings.SplitSeq(oldStorageClasses, ",") {
-				if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
-					logger.Info("PVC is in the old storage class", "pvc", volume.PersistentVolumeClaim.ClaimName)
-					return true
-				}
 			}
 		}
 	}
@@ -121,6 +113,7 @@ func (r *DeploymentController) HasUnMigratedVolumes(ctx context.Context, deploym
 // Returns:
 //   - error: An error if the TOLERATIONS environment variable is not set, toleration parsing fails,
 //     or the deployment update fails
+
 func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployment *v1.Deployment) error {
 	logger := log.FromContext(ctx)
 
@@ -249,6 +242,9 @@ func (r *DeploymentController) WaitForVolumeMigration(ctx context.Context, deplo
 	logger.Info("DONE: All volumes are migrated and updating the annotation to be enabled back")
 	return nil
 }
+
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=,resources=configmaps,verbs=get;list;watch
 
 // Reconcile implements the main reconciliation loop for the DeploymentController.
 // It manages the complete lifecycle of storage class migration for deployment volumes through
