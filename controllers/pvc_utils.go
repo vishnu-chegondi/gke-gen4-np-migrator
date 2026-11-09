@@ -64,7 +64,7 @@ func IsPVCINOLDStorageClass(ctx context.Context, apiReader client.Reader, pvcNam
 	if pvc.Spec.StorageClassName == nil {
 		return false
 	}
-	for _, scName := range strings.Split(oldStorageClasses, ",") {
+	for scName := range strings.SplitSeq(oldStorageClasses, ",") {
 		if strings.TrimSpace(scName) == *pvc.Spec.StorageClassName && pvc.Annotations[AnnotationKEY] != Enabled {
 			logger.Info("PVC is in the old storage class", "pvc", pvcNamespacedName.Name)
 			return true

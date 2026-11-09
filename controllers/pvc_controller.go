@@ -123,7 +123,6 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	case SnapshotInProgress:
 		err = r.WaitForSnapshotCompletion(ctx, &pvc)
 		if errors.Is(err, errSnapshotNotReady) {
-			err = nil
 			result.RequeueAfter = time.Minute
 			return result, nil
 		}

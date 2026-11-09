@@ -202,7 +202,7 @@ func (r *DeploymentController) UpdateVolumeAnnotations(ctx context.Context, depl
 			if err := r.APIReader.Get(ctx, pvcObjectKey, &pvc); err != nil {
 				return err
 			}
-			for _, scName := range strings.Split(storageClassNames, ",") {
+			for scName := range strings.SplitSeq(storageClassNames, ",") {
 				if pvc.Spec.StorageClassName != nil && strings.TrimSpace(scName) == *pvc.Spec.StorageClassName {
 					if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
 						logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)

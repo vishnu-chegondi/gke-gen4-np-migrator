@@ -50,6 +50,7 @@ func (r *SnapshotController) UpdateAnnotation(
 	return r.Update(ctx, snapshot)
 }
 
+//nolint:lll // Kubebuilder RBAC markers must remain on one line.
 // +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile implements the reconciliation loop for VolumeSnapshot resources.
@@ -82,7 +83,10 @@ func (r *SnapshotController) Reconcile(ctx context.Context,
 			goto returnResult
 		}
 		var sourcePVC corev1.PersistentVolumeClaim
-		err = r.APIReader.Get(ctx, client.ObjectKey{Name: *snapshot.Spec.Source.PersistentVolumeClaimName, Namespace: snapshot.Namespace}, &sourcePVC)
+		err = r.APIReader.Get(ctx, client.ObjectKey{
+			Name:      *snapshot.Spec.Source.PersistentVolumeClaimName,
+			Namespace: snapshot.Namespace,
+		}, &sourcePVC)
 		if err == nil {
 			result.RequeueAfter = 60 * time.Second
 			return result, nil
