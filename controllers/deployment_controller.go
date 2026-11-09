@@ -118,7 +118,8 @@ func (r *DeploymentController) ScaleDownDeployment(ctx context.Context, deployme
 	logger := log.FromContext(ctx)
 
 	logger.Info("Updating the replicated annotation if replica count is greater than 0")
-	if *deployment.Spec.Replicas != 0 {
+	if deployment.Spec.Replicas != nil && *deployment.Spec.Replicas != 0 {
+		ensureAnnotations(deployment)
 		deployment.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *deployment.Spec.Replicas)
 	}
 
@@ -201,12 +202,11 @@ func (r *DeploymentController) UpdateVolumeAnnotations(ctx context.Context, depl
 			if err := r.APIReader.Get(ctx, pvcObjectKey, &pvc); err != nil {
 				return err
 			}
-			for scName := range strings.SplitSeq(storageClassNames, ",") {
-				if *pvc.Spec.StorageClassName == scName {
+			for _, scName := range strings.Split(storageClassNames, ",") {
+				if pvc.Spec.StorageClassName != nil && strings.TrimSpace(scName) == *pvc.Spec.StorageClassName {
 					if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
 						logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)
-						PVCAnnotationUpdater := NewPVCAnnotationUpdater(r, volume.PersistentVolumeClaim.ClaimName, deployment.Namespace)
-						if err := PVCAnnotationUpdater.EnableVolumeClaimAnnotation(ctx); err != nil {
+						if err := enablePVCMigration(ctx, r.APIReader, r.Client, pvcObjectKey); err != nil {
 							return err
 						}
 						break
@@ -341,6 +341,7 @@ returnResult:
 	deployment, err = r.GetDeployment(ctx, request.Name, request.Namespace)
 	if err == nil {
 		if annotationValue != "" {
+			ensureAnnotations(deployment)
 			deployment.Annotations[AnnotationKEY] = annotationValue
 		}
 		err = r.Update(ctx, deployment)

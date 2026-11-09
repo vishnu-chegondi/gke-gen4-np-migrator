@@ -6,7 +6,9 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -113,19 +115,26 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 	switch pvc.Annotations[AnnotationKEY] {
 	case Enabled:
 		err = r.CreateSnapshotForPVC(ctx, &pvc)
-		message = "Snapshot created"
-		annotationValue = SnapshotInProgress
+		if err == nil {
+			message = "Snapshot created"
+			annotationValue = SnapshotInProgress
+		}
 		goto returnResult
 	case SnapshotInProgress:
 		err = r.WaitForSnapshotCompletion(ctx, &pvc)
-		message = "Snapshot completed"
-		annotationValue = SnapshotCompleted
+		if errors.Is(err, errSnapshotNotReady) {
+			err = nil
+			result.RequeueAfter = time.Minute
+			return result, nil
+		}
+		if err == nil {
+			message = "Snapshot completed"
+			annotationValue = SnapshotCompleted
+		}
 		goto returnResult
 	case SnapshotCompleted:
 		err = r.DeletePVC(ctx, &pvc)
-		if client.IgnoreNotFound(err) != nil {
-			err = nil
-		}
+		err = client.IgnoreNotFound(err)
 		message = "PVC deleted"
 		annotationValue = ""
 		goto returnResult
@@ -134,6 +143,7 @@ func (r *PVCController) Reconcile(ctx context.Context, request reconcile.Request
 returnResult:
 	if err != nil {
 		message = fmt.Sprintf("Error reconciling PVC: %v", err)
+		result.RequeueAfter = time.Minute
 	} else {
 		if annotationValue != "" {
 			logger.Info("Updating PVC annotation", "pvc", pvc.Name, "annotation", AnnotationKEY, "value", annotationValue)
@@ -141,6 +151,7 @@ returnResult:
 				err = client.IgnoreNotFound(err)
 				return result, err
 			}
+			ensureAnnotations(&pvc)
 			pvc.Annotations[AnnotationKEY] = annotationValue
 			err = r.Update(ctx, &pvc)
 		}
