@@ -318,3 +318,35 @@ make docker-build docker-push IMG=$IMG
 - **controller-runtime**: https://github.com/kubernetes-sigs/controller-runtime
 - **controller-tools**: https://github.com/kubernetes-sigs/controller-tools
 - **Kubebuilder Repo**: https://github.com/kubernetes-sigs/kubebuilder
+
+## Repository-Specific Notes
+
+This repository contains a Kubernetes operator that migrates Deployments and StatefulSets from legacy GKE storage classes to Hyperdisk Balanced storage. Workload controllers drive migration through annotations; PVC and VolumeSnapshot controllers coordinate snapshot creation, replacement PVC creation, and workload recovery.
+
+- `cmd/main.go` configures the scheme, manager, health checks, and controller registration.
+- `controllers/` contains the Deployment, StatefulSet, PVC, and VolumeSnapshot reconciliation logic plus predicates and shared utilities.
+- `test/e2e/` contains tests guarded by the `e2e` build tag; `test/utils/` contains their helpers.
+- `config/` holds Kustomize configuration, RBAC, and storage/snapshot resources.
+- `charts/` and `dist/` contain chart and install bundle output; check their generation workflow before editing.
+- `Makefile`, `go.mod`, and `.golangci.yml` define build, validation, dependency, and lint conventions.
+
+There is no in-repository custom API package today. The operator watches Kubernetes Deployments, StatefulSets, PVCs, and external VolumeSnapshots.
+
+### Repository-specific working conventions
+
+- Make reconciliation idempotent. Account for absent resources, retries, stale cache reads, nil optional fields, and API update conflicts. Preserve resource identity and user-managed metadata when replacing PVCs.
+- Keep migration state transitions explicit and consistent across Deployment and StatefulSet flows. Be cautious when changing annotation keys or values, environment-variable configuration, snapshot/PVC sequencing, or scale-down/restore behavior; these affect live workloads and persisted resources.
+- Use context-aware Kubernetes client calls, return or wrap actionable errors, and use structured controller-runtime logging. Avoid logging full resource objects when they may contain large or sensitive data.
+- Keep helpers small and cohesive. Share logic when behavior is truly identical; do not hide workload-specific migration semantics behind broad abstractions.
+- Follow Go documentation conventions: exported declarations need a doc comment beginning with the declared name; document non-obvious behavior, side effects, and error conditions without repeating the signature.
+- Review `charts/`, `dist/`, and YAML under `config/` for their source-to-output relationships before editing. If changing generated content, update its source and run the documented generator, then inspect the resulting diff.
+
+### Repository validation
+
+- `go vet ./...` or `make vet` checks Go packages for common mistakes.
+- `make lint` runs the configured golangci-lint suite from `.golangci.yml`.
+- `make test` regenerates manifests/code, formats, vets, provisions envtest assets, then runs non-e2e Go tests. It can modify generated files and creates `cover.out`; inspect changes afterward.
+- `make test-e2e` uses a dedicated Kind cluster (default name `gke-gen4-np-migrator-test-e2e`) and may install CertManager. Run it only against an isolated cluster.
+- `make build` regenerates manifests/code, formats, vets, and builds the manager.
+
+For a requested code review, run `go vet ./...` and inspect its output; avoid formatters or autofix commands that rewrite the checkout. See `skills/go-code-review/SKILL.md` for the dedicated Go review workflow.

@@ -2,9 +2,12 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,10 +45,12 @@ func (r *SnapshotController) UpdateAnnotation(
 	if value == "" {
 		return nil
 	}
+	ensureAnnotations(snapshot)
 	snapshot.Annotations[AnnotationKEY] = value
 	return r.Update(ctx, snapshot)
 }
 
+//nolint:lll // Kubebuilder RBAC markers must remain on one line.
 // +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile implements the reconciliation loop for VolumeSnapshot resources.
@@ -66,18 +71,27 @@ func (r *SnapshotController) Reconcile(ctx context.Context,
 
 	switch snapshot.Annotations[AnnotationKEY] {
 	case Enabled:
-		for !SnapshotAvailable(&snapshot) {
-			time.Sleep(60 * time.Second)
-			if err := r.APIReader.Get(ctx, request.NamespacedName, &snapshot); err != nil {
-				goto returnResult
-			}
+		if !SnapshotAvailable(&snapshot) {
+			result.RequeueAfter = 60 * time.Second
+			return result, nil
 		}
 		annotationValue = Available
 		goto returnResult
 	case Available:
-		err = waitForPVCDeletion(ctx, r.APIReader, *snapshot.Spec.Source.PersistentVolumeClaimName, snapshot.Namespace)
-		if err != nil {
+		if snapshot.Spec.Source.PersistentVolumeClaimName == nil {
+			err = fmt.Errorf("snapshot %s has no source PVC name", snapshot.Name)
+			goto returnResult
+		}
+		var sourcePVC corev1.PersistentVolumeClaim
+		err = r.APIReader.Get(ctx, client.ObjectKey{
+			Name:      *snapshot.Spec.Source.PersistentVolumeClaimName,
+			Namespace: snapshot.Namespace,
+		}, &sourcePVC)
+		if err == nil {
 			result.RequeueAfter = 60 * time.Second
+			return result, nil
+		}
+		if !apierrors.IsNotFound(err) {
 			goto returnResult
 		}
 		err = r.CreateNewPVC(ctx, &snapshot)
@@ -94,7 +108,9 @@ returnResult:
 		logger.Error(err, "Error reconciling snapshot")
 		result = reconcile.Result{RequeueAfter: 60 * time.Second}
 	}
-	err = r.UpdateAnnotation(ctx, &snapshot, annotationValue)
+	if annotationValue != "" {
+		err = r.UpdateAnnotation(ctx, &snapshot, annotationValue)
+	}
 	return result, err
 }
 

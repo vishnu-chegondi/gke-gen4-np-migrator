@@ -8,7 +8,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
@@ -22,82 +21,27 @@ import (
 // PVCAnnotationKey is the annotation key used to store PVC metadata in VolumeSnapshot objects.
 const PVCAnnotationKey = "gke.gen4.np.codeamenity.in/pvc"
 
-// PVCAnnotationUpdater manages annotations for PersistentVolumeClaims associated with Deployments.
-type PVCAnnotationUpdater struct {
-	r         *DeploymentController
-	name      string
-	namespace string
+func ensureAnnotations(obj metav1.Object) {
+	if obj.GetAnnotations() == nil {
+		obj.SetAnnotations(make(map[string]string))
+	}
 }
 
-// NewPVCAnnotationUpdater creates a new PVCAnnotationUpdater for managing PVC annotations
-// in the context of a Deployment controller.
-func NewPVCAnnotationUpdater(r *DeploymentController, name, namespace string) *PVCAnnotationUpdater {
-	return &PVCAnnotationUpdater{r, name, namespace}
-}
-
-// EnableVolumeClaimAnnotation adds the migration annotation to a PersistentVolumeClaim
-// if it doesn't already exist. This marks the PVC as ready for migration.
-func (u *PVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) error {
-	// Get the PVC object
+// enablePVCMigration requests migration for a PVC using only the client operations
+// this behavior needs, keeping it independent from either workload controller.
+func enablePVCMigration(ctx context.Context, reader client.Reader, writer client.Writer, key client.ObjectKey) error {
 	var pvc v1.PersistentVolumeClaim
-	if err := u.r.APIReader.Get(ctx, client.ObjectKey{Name: u.name, Namespace: u.namespace}, &pvc); err != nil {
+	if err := reader.Get(ctx, key, &pvc); err != nil {
 		return err
 	}
-
-	// Add the annotation to the PVC
 	if pvc.Annotations == nil {
 		pvc.Annotations = make(map[string]string)
 	}
-
 	if _, exists := pvc.Annotations[AnnotationKEY]; exists {
 		return nil
 	}
-
 	pvc.Annotations[AnnotationKEY] = Enabled
-	if err := u.r.Update(ctx, &pvc); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// STSPVCAnnotationUpdater manages annotations for PersistentVolumeClaims associated with StatefulSets.
-type STSPVCAnnotationUpdater struct {
-	r         *StsController
-	name      string
-	namespace string
-}
-
-// NewSTSPVCAnnotationUpdater creates a new STSPVCAnnotationUpdater for managing PVC annotations
-// in the context of a StatefulSet controller.
-func NewSTSPVCAnnotationUpdater(r *StsController, name, namespace string) *STSPVCAnnotationUpdater {
-	return &STSPVCAnnotationUpdater{r, name, namespace}
-}
-
-// EnableVolumeClaimAnnotation adds the migration annotation to a PersistentVolumeClaim
-// if it doesn't already exist. This marks the PVC as ready for migration in a StatefulSet context.
-func (u *STSPVCAnnotationUpdater) EnableVolumeClaimAnnotation(ctx context.Context) error {
-	// Get the PVC object
-	var pvc v1.PersistentVolumeClaim
-	if err := u.r.APIReader.Get(ctx, client.ObjectKey{Name: u.name, Namespace: u.namespace}, &pvc); err != nil {
-		return err
-	}
-
-	// Add the annotation to the PVC
-	if pvc.Annotations == nil {
-		pvc.Annotations = make(map[string]string)
-	}
-
-	if _, exists := pvc.Annotations[AnnotationKEY]; exists {
-		return nil
-	}
-
-	pvc.Annotations[AnnotationKEY] = Enabled
-	if err := u.r.Update(ctx, &pvc); err != nil {
-		return err
-	}
-
-	return nil
+	return writer.Update(ctx, &pvc)
 }
 
 // IsPVCINOLDStorageClass reports whether the named PVC should be treated as
@@ -117,8 +61,11 @@ func IsPVCINOLDStorageClass(ctx context.Context, apiReader client.Reader, pvcNam
 		logger.Info("PVC does not exist", "pvc", pvcNamespacedName.Name)
 		return true
 	}
-	for _, scName := range strings.Split(oldStorageClasses, ",") {
-		if *pvc.Spec.StorageClassName == scName && pvc.Annotations[AnnotationKEY] != Enabled {
+	if pvc.Spec.StorageClassName == nil {
+		return false
+	}
+	for scName := range strings.SplitSeq(oldStorageClasses, ",") {
+		if strings.TrimSpace(scName) == *pvc.Spec.StorageClassName && pvc.Annotations[AnnotationKEY] != Enabled {
 			logger.Info("PVC is in the old storage class", "pvc", pvcNamespacedName.Name)
 			return true
 		}
@@ -148,10 +95,12 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	pvcNamespacedName := client.ObjectKey{Namespace: oldPVCObject.Namespace, Name: oldPVCObject.Name}
 	if err := r.APIReader.Get(ctx, pvcNamespacedName, &v1.PersistentVolumeClaim{}); err == nil {
 		return fmt.Errorf("PVC %s already exists", oldPVCObject.Name)
+	} else if client.IgnoreNotFound(err) != nil {
+		return err
 	}
 
 	newSpec := oldPVCObject.Spec.DeepCopy()
-	if slices.Contains(newPVC.Spec.AccessModes, v1.ReadWriteMany) {
+	if slices.Contains(newSpec.AccessModes, v1.ReadWriteMany) {
 		newSpec.VolumeMode = new(v1.PersistentVolumeBlock)
 	}
 	newSpec.StorageClassName = new(newStorageClass)
@@ -171,6 +120,9 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 	newPVCObjectMetadata.ResourceVersion = ""
 	newPVCObjectMetadata.UID = ""
 	newPVCObjectMetadata.CreationTimestamp = metav1.Time{}
+	if newPVCObjectMetadata.Annotations == nil {
+		newPVCObjectMetadata.Annotations = make(map[string]string)
+	}
 	newPVCObjectMetadata.Annotations[AnnotationKEY] = Enabled
 	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bind-completed")
 	delete(newPVCObjectMetadata.Annotations, "pv.kubernetes.io/bound-by-controller")
@@ -190,27 +142,4 @@ func (r *SnapshotController) CreateNewPVC(ctx context.Context, snapshot *snapsho
 		return err
 	}
 	return nil
-}
-
-// waitForPVCDeletion polls for the deletion of a PersistentVolumeClaim with a 15-minute timeout.
-// It checks every 10 seconds if the PVC still exists and returns nil once it's deleted.
-// Returns an error if the timeout is reached before the PVC is deleted.
-func waitForPVCDeletion(ctx context.Context, r client.Reader, name, namespace string) (err error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Waiting for PVC to be deleted", "pvc", name)
-	timeout := time.After(15 * time.Minute)
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-timeout:
-			err = fmt.Errorf("timeout waiting for PVC deletion after 15 minutes: %s", name)
-			return err
-		case <-ticker.C:
-			err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, &v1.PersistentVolumeClaim{})
-			if client.IgnoreNotFound(err) == nil {
-				return nil
-			}
-		}
-	}
 }

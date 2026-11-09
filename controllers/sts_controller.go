@@ -87,6 +87,7 @@ func (r *StsController) ScaleDownSTS(ctx context.Context, sts *v1.StatefulSet) e
 	logger := log.FromContext(ctx)
 	if sts.Spec.Replicas != nil && *sts.Spec.Replicas > 0 {
 		logger.Info("Updating the replicated annotation if replica count is greater than 0")
+		ensureAnnotations(sts)
 		sts.Annotations[ReplicaAnnotationKey] = fmt.Sprintf("%d", *sts.Spec.Replicas)
 	}
 
@@ -135,11 +136,10 @@ func (r *StsController) UpdateVolumeAnnotations(ctx context.Context, sts *v1.Sta
 				return err
 			}
 			for scName := range strings.SplitSeq(storageClassNames, ",") {
-				if *pvc.Spec.StorageClassName == scName {
+				if pvc.Spec.StorageClassName != nil && strings.TrimSpace(scName) == *pvc.Spec.StorageClassName {
 					if _, exists := pvc.Annotations[AnnotationKEY]; !exists {
 						logger.Info("Adding annotation to PVC", "pvc", pvcObjectKey)
-						PVCAnnotationUpdater := NewSTSPVCAnnotationUpdater(r, volumeName, sts.Namespace)
-						if err := PVCAnnotationUpdater.EnableVolumeClaimAnnotation(ctx); err != nil {
+						if err := enablePVCMigration(ctx, r.APIReader, r.Client, pvcObjectKey); err != nil {
 							return err
 						}
 						break
@@ -263,6 +263,7 @@ ReturnResult:
 		result.RequeueAfter = 60 * time.Second
 	}
 	if annotationValue != "" {
+		ensureAnnotations(sts)
 		sts.Annotations[AnnotationKEY] = annotationValue
 		err = r.Update(ctx, sts)
 	}

@@ -2,9 +2,9 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
@@ -13,6 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 )
+
+var errSnapshotNotReady = errors.New("snapshot is not ready")
 
 // CreateSnapshotForPVC creates a VolumeSnapshot from a PersistentVolumeClaim.
 // It requires the VOLUME_SNAPHOT_CLASS environment variable to be set.
@@ -89,10 +91,9 @@ returnError:
 	return err
 }
 
-// WaitForSnapshotCompletion polls for the completion of a VolumeSnapshot associated with a PVC.
-// It only waits if the PVC has the migration annotation set to "snapshot-in-progress".
-// The function polls every 60 seconds until the snapshot's ReadyToUse status becomes true.
-// Once complete, it updates the PVC's annotation to SnapshotCompleted.
+// WaitForSnapshotCompletion checks the VolumeSnapshot associated with a PVC once.
+// It returns errSnapshotNotReady while the snapshot is pending so the reconciler can
+// requeue without occupying a worker. Once ready, it updates the PVC annotation.
 //
 // Parameters:
 //   - ctx: The context for the operation
@@ -101,8 +102,6 @@ returnError:
 // Returns an error if:
 //   - Unable to get the fresh PVC object
 //   - Unable to update the PVC annotation after snapshot completion
-//
-// The function runs indefinitely until the snapshot is ready or an error occurs.
 func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
 	if value, exists := pvc.Annotations[AnnotationKEY]; exists && value != "snapshot-in-progress" {
 		return nil
@@ -114,23 +113,25 @@ func (r *PVCController) WaitForSnapshotCompletion(ctx context.Context, pvc *v1.P
 		Name:      pvc.Name + "-snapshot",
 	}
 	logger.Info("Waiting for snapshot to complete", "snapshot", snapshotObjectKey)
-	for {
-		var snapshot snapshotv1.VolumeSnapshot
-		_ = r.APIReader.Get(ctx, snapshotObjectKey, &snapshot)
-		if SnapshotAvailable(&snapshot) {
-			logger.Info("Snapshot completed", "snapshot", snapshotObjectKey)
-			freshPVC := v1.PersistentVolumeClaim{}
-			pvcNamespacedName := types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}
-			if err := r.APIReader.Get(ctx, pvcNamespacedName, &freshPVC); err != nil {
-				return err
-			}
-			freshPVC.Annotations[AnnotationKEY] = SnapshotCompleted
-			err := r.Update(ctx, &freshPVC)
-			return err
-		}
-		logger.Info("Snapshot not yet available", "snapshot", snapshotObjectKey)
-		time.Sleep(60 * time.Second)
+	var snapshot snapshotv1.VolumeSnapshot
+	if err := r.APIReader.Get(ctx, snapshotObjectKey, &snapshot); err != nil {
+		return err
 	}
+	if !SnapshotAvailable(&snapshot) {
+		logger.Info("Snapshot not yet available", "snapshot", snapshotObjectKey)
+		return errSnapshotNotReady
+	}
+	logger.Info("Snapshot completed", "snapshot", snapshotObjectKey)
+	freshPVC := v1.PersistentVolumeClaim{}
+	pvcNamespacedName := types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}
+	if err := r.APIReader.Get(ctx, pvcNamespacedName, &freshPVC); err != nil {
+		return err
+	}
+	if freshPVC.Annotations == nil {
+		freshPVC.Annotations = make(map[string]string)
+	}
+	freshPVC.Annotations[AnnotationKEY] = SnapshotCompleted
+	return r.Update(ctx, &freshPVC)
 }
 
 // SnapshotAvailable checks if a VolumeSnapshot is ready to use.
