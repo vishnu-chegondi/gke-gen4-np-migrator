@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 on:
   push:
@@ -7,10 +7,10 @@ on:
 permissions: {}
 
 jobs:
-  test:
+  ci:
     permissions:
       contents: read
-    name: Run on Ubuntu
+    name: Lint and Test
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -23,7 +23,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check linter configuration
+        run: make lint-config
+
+      - name: Run linter
+        run: make lint
+
       - name: Running Tests
+        if: ${{ !cancelled() }}
         run: |
           go mod tidy
           make test
