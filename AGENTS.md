@@ -349,4 +349,4 @@ There is no in-repository custom API package today. The operator watches Kuberne
 - `make test-e2e` uses a dedicated Kind cluster (default name `gke-gen4-np-migrator-test-e2e`) and may install CertManager. Run it only against an isolated cluster.
 - `make build` regenerates manifests/code, formats, vets, and builds the manager.
 
-For a requested code review, run `go vet ./...` and inspect its output; avoid formatters or autofix commands that rewrite the checkout. See `skills/go-code-review/SKILL.md` for the dedicated Go review workflow.
+For a requested code review, run `go vet ./...` and inspect its output; avoid formatters or autofix commands that rewrite the checkout. See `.github/skills/go-code-review` for the dedicated Go review workflow.
